@@ -425,3 +425,16 @@ func TestThePeerAddressIsAnAddressAndNothingElse(t *testing.T) {
 		})
 	}
 }
+
+func TestKosyncBasicAuthNeedsPasswordInsteadOfKey(t *testing.T) {
+	cfg := workingMirror(t)
+	cfg.Mirror.RemoteKey = ""
+	cfg.Mirror.RemotePassword = "basic-password"
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Mirror.RemotePassword = ""
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("mirror accepted without either credential")
+	}
+}

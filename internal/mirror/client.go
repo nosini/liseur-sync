@@ -17,6 +17,7 @@ package mirror
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -99,6 +100,7 @@ type Client struct {
 	baseURL  string
 	user     string
 	key      string
+	password string
 	deviceID string
 	http     *http.Client
 }
@@ -111,6 +113,7 @@ func NewClient(cfg config.MirrorConfig) *Client {
 		baseURL:  strings.TrimSuffix(cfg.BaseURL, "/"),
 		user:     cfg.RemoteUser,
 		key:      cfg.RemoteKey,
+		password: cfg.RemotePassword,
 		deviceID: cfg.DeviceID,
 		http: &http.Client{
 			Timeout: cfg.Timeout.Duration(),
@@ -211,8 +214,14 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]by
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("x-auth-user", c.user)
-	req.Header.Set("x-auth-key", c.key)
+	if c.password != "" {
+		// Calibre-Web KOSync authenticates with the account password.
+		req.SetBasicAuth(c.user, c.password)
+	} else {
+		// Standard KOReader-compatible servers use an MD5-derived key.
+		req.Header.Set("x-auth-user", c.user)
+		req.Header.Set("x-auth-key", c.key)
+	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "liseur-sync")
 	if body != nil {
@@ -236,7 +245,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]by
 		return nil, ErrNoPosition
 	case resp.StatusCode >= 300:
 		return nil, fmt.Errorf("mirror: %s %s: peer answered %s: %s",
-			method, path, resp.Status, firstLine(raw))
+			method, path, fmt.Sprintf("%d %s", resp.StatusCode, http.StatusText(resp.StatusCode)), c.safeErrorBody(raw))
 	}
 	if readErr != nil {
 		return nil, fmt.Errorf("mirror: %s %s: %w", method, path, readErr)
@@ -258,4 +267,16 @@ func firstLine(raw []byte) string {
 		return "(empty body)"
 	}
 	return s
+}
+
+// Proxies can echo request headers in errors. Redact before truncation so
+// neither the plaintext password nor its Basic header reaches logs/cursors.
+func (c *Client) safeErrorBody(raw []byte) string {
+	s := string(raw)
+	for _, secret := range []string{base64.StdEncoding.EncodeToString([]byte(c.user + ":" + c.password)), c.password, c.key} {
+		if secret != "" {
+			s = strings.ReplaceAll(s, secret, "[redacted]")
+		}
+	}
+	return firstLine([]byte(s))
 }

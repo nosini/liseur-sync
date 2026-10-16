@@ -194,10 +194,9 @@ type MirrorConfig struct {
 	// sends as x-auth-key. It unlocks progress-by-fingerprint on the
 	// peer and nothing else.
 	RemoteKey string `toml:"remote_key"`
-	// RemotePassword is the native protocol's credential, and it is
-	// the peer account's real password, because BookOrbit offers a
-	// native client nothing narrower. It opens that whole account, so
-	// it is the reason kosync remains the default (ADR-0048).
+	// RemotePassword is the peer's real password: BookOrbit uses it to
+	// sign in; kosync uses HTTP Basic when it is set (Calibre-Web).
+	// Otherwise kosync sends RemoteKey through x-auth-key.
 	RemotePassword string `toml:"remote_password"`
 	// DeviceID is the device name this server writes under on the peer.
 	// It is also how it recognises its own echo coming back, so it must
@@ -515,7 +514,10 @@ func (c *Config) validateMirror() error {
 	}
 	switch m.Protocol {
 	case ProtocolKosync:
-		required = append(required, setting{"mirror.remote_key", m.RemoteKey})
+		// Accept either standard KOReader authentication or CWA Basic Auth.
+		if m.RemotePassword == "" {
+			required = append(required, setting{"mirror.remote_key", m.RemoteKey})
+		}
 	case ProtocolBookOrbit:
 		required = append(required, setting{"mirror.remote_password", m.RemotePassword})
 	default:

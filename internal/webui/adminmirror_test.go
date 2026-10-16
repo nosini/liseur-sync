@@ -508,3 +508,64 @@ func TestOnlyAnAdministratorSavesTheMirror(t *testing.T) {
 		t.Fatalf("a reader posting to the mirror form got %d", code)
 	}
 }
+
+func TestAdminCanSaveAndKeepBasicAuthForKosync(t *testing.T) {
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, p, ok := r.BasicAuth()
+		if !ok || u != "reader" || p != "basic-password" || r.Header.Get("X-Auth-Key") != "" {
+			t.Error("Basic Auth changed into kosync headers")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer peer.Close()
+	ts, cookie, path, csrf := mirrorAdmin(t)
+	form := url.Values{"csrf": {csrf}, "enabled": {"on"}, "protocol": {"kosync"}, "auth_mode": {"basic"}, "base_url": {peer.URL}, "account": {"alice"}, "remote_user": {"reader"}, "remote_password": {"basic-password"}, "name": {"peer"}, "device_id": {"liseur-sync"}}
+	for i := 0; i < 2; i++ {
+		_, body := postForm(t, ts, cookie, "/ui/admin/mirror", form)
+		if !strings.Contains(body, "connection tested") || strings.Contains(body, "basic-password") {
+			t.Fatalf("Basic save: %s", body)
+		}
+		saved, _, err := config.MirrorFromFile(path)
+		if err != nil || saved.RemotePassword != "basic-password" || saved.RemoteKey != "" {
+			t.Fatalf("Basic settings: %+v %v", saved, err)
+		}
+		form.Set("remote_password", "")
+	}
+}
+
+func TestAdminBasicAuthEnvironmentCredentialSurvivesRepeatedSaves(t *testing.T) {
+	t.Setenv("LISEUR_MIRROR_REMOTE_PASSWORD", "environment-basic-password")
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, password, ok := r.BasicAuth()
+		if !ok || password != "environment-basic-password" {
+			t.Error("environment Basic credential lost")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer peer.Close()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	ts, st := testServerCfg(t, nil, func(s *Server) {
+		s.ConfigPath = path
+		s.Cfg.Mirror.Enabled = true
+		s.Cfg.Mirror.Account = "alice"
+		s.Cfg.Mirror.BaseURL = peer.URL
+		s.Cfg.Mirror.RemoteUser = "reader"
+		s.Cfg.Mirror.RemotePassword = "environment-basic-password"
+	})
+	if err := st.SetUserAdmin(t.Context(), "u1", true); err != nil {
+		t.Fatal(err)
+	}
+	cookie := loginCookie(t, ts)
+	_, body := page(t, ts, cookie, "/ui/settings?section=admin&view=mirror")
+	form := url.Values{"csrf": {extractCSRF(t, body)}, "enabled": {"on"}, "protocol": {"kosync"}, "auth_mode": {"basic"}, "base_url": {peer.URL}, "account": {"alice"}, "remote_user": {"reader"}, "name": {"peer"}, "device_id": {"liseur-sync"}}
+	for i := 0; i < 2; i++ {
+		_, body = postForm(t, ts, cookie, "/ui/admin/mirror", form)
+		if !strings.Contains(body, "connection tested") || !strings.Contains(body, `value="basic" selected`) {
+			t.Fatalf("environment Basic save: %s", body)
+		}
+		saved, _, err := config.MirrorFromFile(path)
+		if err != nil || saved.RemotePassword != "" || saved.RemoteKey != "" {
+			t.Fatalf("environment credential copied to disk: %+v %v", saved, err)
+		}
+	}
+}

@@ -536,3 +536,53 @@ func TestADocumentWithNothingInItIsRefusedLocally(t *testing.T) {
 		t.Fatalf("the peer was called %d times for an empty document", len(peer.requests))
 	}
 }
+
+func TestBasicAuthenticationOnAllKosyncRequests(t *testing.T) {
+	const user, password = "reader", "plain-peer-password"
+	var calls []string
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, p, ok := r.BasicAuth()
+		if !ok || u != user || p != password || r.Header.Get("X-Auth-Key") != "" || r.Header.Get("X-Auth-User") != "" {
+			t.Error("wrong authentication headers")
+		}
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		if r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/syncs/") {
+			writeJSON(w, 200, Position{Document: "abc", Progress: "0.5", Percentage: 0.5})
+		} else {
+			writeJSON(w, 200, map[string]string{"authorized": "OK"})
+		}
+	}))
+	defer peer.Close()
+	c := NewClient(config.MirrorConfig{BaseURL: peer.URL, RemoteUser: user, RemotePassword: password, RemoteKey: "unused-key", DeviceID: "mirror", Timeout: config.Duration(time.Second)})
+	if err := c.Authorize(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Push(t.Context(), Position{Document: "abc", Percentage: 0.5}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Pull(t.Context(), "abc"); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 3 {
+		t.Fatalf("requests: %v", calls)
+	}
+}
+
+func TestKosyncErrorsDoNotStoreEchoedCredentials(t *testing.T) {
+	const password = "private-basic-password"
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(r.Header.Get("Authorization") + " " + r.Header.Get("X-Auth-Key")))
+	}))
+	defer peer.Close()
+	for _, basic := range []bool{false, true} {
+		cfg := config.MirrorConfig{BaseURL: peer.URL, RemoteUser: "reader", RemoteKey: "private-key", Timeout: config.Duration(time.Second)}
+		if basic {
+			cfg.RemotePassword = password
+		}
+		err := NewClient(cfg).Authorize(t.Context())
+		if err == nil || strings.Contains(err.Error(), password) || strings.Contains(err.Error(), "private-key") || strings.Contains(err.Error(), "cmVhZGVyOi") {
+			t.Fatalf("credential in error: %v", err)
+		}
+	}
+}

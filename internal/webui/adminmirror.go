@@ -29,11 +29,11 @@ func mirrorHasCredential(m config.MirrorConfig) bool {
 	if m.Protocol == config.ProtocolBookOrbit {
 		return m.RemotePassword != ""
 	}
-	return m.RemoteKey != ""
+	return m.RemoteKey != "" || m.RemotePassword != ""
 }
 
-func mirrorCredentialFromEnv(protocol string) bool {
-	if protocol == config.ProtocolBookOrbit {
+func mirrorCredentialFromEnv(protocol string, basic bool) bool {
+	if protocol == config.ProtocolBookOrbit || basic {
 		_, ok := os.LookupEnv("LISEUR_MIRROR_REMOTE_PASSWORD")
 		return ok
 	}
@@ -41,8 +41,8 @@ func mirrorCredentialFromEnv(protocol string) bool {
 	return ok
 }
 
-func applyMirrorCredentialFromEnv(m *config.MirrorConfig) bool {
-	if m.Protocol == config.ProtocolBookOrbit {
+func applyMirrorCredentialFromEnv(m *config.MirrorConfig, basic bool) bool {
+	if m.Protocol == config.ProtocolBookOrbit || basic {
 		v, ok := os.LookupEnv("LISEUR_MIRROR_REMOTE_PASSWORD")
 		if ok {
 			m.RemoteKey, m.RemotePassword = "", v
@@ -56,8 +56,8 @@ func applyMirrorCredentialFromEnv(m *config.MirrorConfig) bool {
 	return ok
 }
 
-// mirrorConfig is what the mirror form shows: the file as this process
-// last wrote it, or as it read it at startup.
+// mirrorConfig shows the last saved settings with the effective credential,
+// or the startup configuration before the first save.
 func (s *Server) mirrorConfig() config.MirrorConfig {
 	s.mirrorMu.RLock()
 	defer s.mirrorMu.RUnlock()
@@ -67,9 +67,8 @@ func (s *Server) mirrorConfig() config.MirrorConfig {
 	return s.Cfg.Mirror
 }
 
-// rememberMirror records what a save put on disk, so the page the
-// browser is redirected to shows the settings it just submitted rather
-// than the ones this process started with.
+// rememberMirror records a save with the credential used to test it.
+// Environment credentials remain in memory and are never copied into TOML.
 func (s *Server) rememberMirror(m config.MirrorConfig) {
 	s.mirrorMu.Lock()
 	defer s.mirrorMu.Unlock()
@@ -79,9 +78,9 @@ func (s *Server) rememberMirror(m config.MirrorConfig) {
 // handleSaveMirror writes the [mirror] table of the config file.
 //
 // What the password field means depends on the protocol. On the
-// KOReader path it is turned into the KOReader key here and the
-// password itself is never stored, because that is what KOReader's
-// clients send. On the BookOrbit path it is the account password and
+// standard KOReader path it becomes the KOReader key. HTTP Basic
+// keeps the password itself, as Calibre-Web requires. On the BookOrbit
+// path it is the account password and
 // has to be kept as typed: BookOrbit's own API signs in with it, and
 // there is no scoped alternative it would accept.
 //
@@ -100,6 +99,7 @@ func (s *Server) handleSaveMirror(w http.ResponseWriter, r *http.Request, a stor
 	}
 	m := s.mirrorConfig()
 	previous := m.Protocol
+	previousBasic := m.RemotePassword != "" && m.Protocol == config.ProtocolKosync
 	m.Enabled = r.FormValue("enabled") == "on"
 	m.Protocol = strings.ToLower(strings.TrimSpace(r.FormValue("protocol")))
 	m.BaseURL = strings.TrimSpace(r.FormValue("base_url"))
@@ -117,11 +117,19 @@ func (s *Server) handleSaveMirror(w http.ResponseWriter, r *http.Request, a stor
 	if m.Protocol != previous {
 		m.RemoteKey, m.RemotePassword = "", ""
 	}
+	mode := r.FormValue("auth_mode")
+	basic := mode == "basic" || (mode == "" && previousBasic && m.Protocol == previous)
+	if mode != "" && mode != "basic" && mode != "kosync" {
+		s.renderMirror(w, r, a, u, Flash{Error: "Invalid authentication method."})
+		return
+	}
 	password := r.FormValue("remote_password")
 	if password != "" {
-		if m.Protocol == config.ProtocolBookOrbit {
+		if m.Protocol == config.ProtocolBookOrbit || basic {
+			m.RemoteKey = ""
 			m.RemotePassword = password
 		} else {
+			m.RemotePassword = ""
 			sum := md5.Sum([]byte(password))
 			m.RemoteKey = hex.EncodeToString(sum[:])
 		}
@@ -131,7 +139,7 @@ func (s *Server) handleSaveMirror(w http.ResponseWriter, r *http.Request, a stor
 			s.renderMirror(w, r, a, u, Flash{Error: err.Error()})
 			return
 		}
-		if diskMirror.Protocol == m.Protocol {
+		if diskMirror.Protocol == m.Protocol && (m.Protocol == config.ProtocolBookOrbit || basic == (diskMirror.RemotePassword != "")) {
 			// Keep only a credential that was already in the file. A
 			// credential supplied through the environment may still be used
 			// to test the connection below, but saving unrelated settings
@@ -145,12 +153,12 @@ func (s *Server) handleSaveMirror(w http.ResponseWriter, r *http.Request, a stor
 	// trailing slash from the peer URL — so what it leaves behind is
 	// what gets written, not what the form sent.
 	checkMirror := m
-	if password == "" && mirrorCredentialFromEnv(checkMirror.Protocol) {
+	if password == "" && mirrorCredentialFromEnv(checkMirror.Protocol, basic) {
 		// The running config is the effective one after environment
 		// overrides. Use that credential for validation and the
 		// connection test, while the value saved below stays the one
 		// from the file unless the form supplied a replacement.
-		applyMirrorCredentialFromEnv(&checkMirror)
+		applyMirrorCredentialFromEnv(&checkMirror, basic)
 	}
 	check := s.Cfg
 	check.Mirror = checkMirror
@@ -195,7 +203,10 @@ func (s *Server) handleSaveMirror(w http.ResponseWriter, r *http.Request, a stor
 		s.renderMirror(w, r, a, u, Flash{Error: err.Error()})
 		return
 	}
-	s.rememberMirror(m)
+	// Keep the effective credential in memory so an environment-backed
+	// Basic mirror still renders the right authentication mode after saving.
+	// Only m, with the disk credential, was passed to SaveMirror above.
+	s.rememberMirror(checkMirror)
 	notice := "Mirror saved and disabled. Restart liseur-sync to stop it."
 	if m.Enabled {
 		notice = "Mirror saved and connection tested. Restart liseur-sync to apply it."
