@@ -764,6 +764,13 @@ CREATE TABLE work_translation_stamps (
 );
 `
 
+const userMirrors = `
+CREATE TABLE user_mirrors (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    sealed_config TEXT NOT NULL
+);
+`
+
 // migrations is append-only, for the reason the SQLite copy gives.
 var migrations = []string{
 	schema, claimRevisions, folderUploads, folderAccess, annotationSync,
@@ -777,6 +784,7 @@ var migrations = []string{
 	furthestPositions,
 	workTranslations,
 	workTranslationStamps,
+	userMirrors,
 }
 
 // migrationsThrough returns the migrations up to but not including the
@@ -801,6 +809,7 @@ func migrationsThrough(name string) ([]string, bool) {
 		"furthestPositions":        furthestPositions,
 		"workTranslations":         workTranslations,
 		"workTranslationStamps":    workTranslationStamps,
+		"userMirrors":              userMirrors,
 	}
 	want, ok := named[name]
 	if !ok {

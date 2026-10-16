@@ -14,12 +14,15 @@ templ settingsBody(prefix string, u userCtx, csrf string, v settingsView) {
 	</header>
 	<nav class="settings-tabs" aria-label="Settings sections">
 		@settingsTab(settingsHref(prefix, settingsProfile), "Profile & security", v.Section == settingsProfile)
-		@settingsTab(settingsHref(prefix, settingsDevices), "Devices & integrations", v.Section == settingsDevices)
+		@settingsTab(settingsHref(prefix, settingsDevices), "Devices & integrations", v.Section == settingsDevices || v.Section == settingsMirror)
 		if u.IsAdmin {
 			@settingsTab(settingsHref(prefix, settingsAdmin), "Administration", v.Section == settingsAdmin)
 		}
 	</nav>
-	if v.Section == settingsDevices {
+	if v.Section == settingsMirror {
+		@userMirrorBody(prefix, csrf, v.Mirror, v.Flash)
+	} else if v.Section == settingsDevices {
+		<section class="card"><h2>Mirror reading positions</h2><p>Keep your reading position in step with another KOReader sync server.</p><a href={ settingsHref(prefix, settingsMirror) }>Set up your mirror</a></section>
 		@devicesBody(prefix, csrf, v.Devices.Tokens, v.Devices.Browsers,
 			v.Devices.Kosync, v.Devices.Koplugin, v.Devices.Base, v.Flash)
 	} else if v.Section == settingsAdmin {
@@ -87,8 +90,7 @@ templ settingsProfileBody(prefix string, u userCtx, csrf string, v settingsView)
 					to paste into an assistant. Leave it empty and no button
 					appears.
 				</p>
-				<label>
-					Prompt
+				<label>Prompt
 					<textarea name="reader_prompt" rows="9" maxlength={ readerPromptMaxLength() } id="reader-prompt-template" spellcheck="true">{ u.User.ReaderPromptTemplate }</textarea>
 				</label>
 				<p class="muted">

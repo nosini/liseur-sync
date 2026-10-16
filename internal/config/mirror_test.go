@@ -438,3 +438,18 @@ func TestKosyncBasicAuthNeedsPasswordInsteadOfKey(t *testing.T) {
 		t.Fatal("mirror accepted without either credential")
 	}
 }
+
+func TestPersonalMirrorOriginsAreOriginsOnly(t *testing.T) {
+	for _, origin := range []string{"https://peer.example/path", "https://secret@peer.example", "https://peer.example?secret=x", "file:///private", "https://peer.example?", "https://peer.example#fragment"} {
+		c := Default()
+		c.MirrorAllowedOrigins = []string{origin}
+		if err := c.Validate(); err == nil {
+			t.Fatalf("accepted non-origin %s", origin)
+		}
+	}
+	t.Setenv("LISEUR_MIRROR_ALLOWED_ORIGINS", "https://peer.example:8443,http://localhost:8080")
+	c, err := Load("")
+	if err != nil || len(c.MirrorAllowedOrigins) != 2 {
+		t.Fatalf("origin env: %v %v", c.MirrorAllowedOrigins, err)
+	}
+}

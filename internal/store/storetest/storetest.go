@@ -24,6 +24,7 @@ const anyReader = ""
 
 // Run executes the full suite.
 func Run(t *testing.T, open OpenFunc) {
+	t.Run("UserMirrorSettings", func(t *testing.T) { testUserMirrorSettings(t, open) })
 	t.Run("MirrorCandidates", func(t *testing.T) { testMirrorCandidates(t, open) })
 	t.Run("MirrorCandidatesRespectFolderGrants", func(t *testing.T) {
 		testMirrorCandidatesRespectFolderGrants(t, open)

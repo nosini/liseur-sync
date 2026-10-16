@@ -227,15 +227,21 @@ func cmdServe(args []string) error {
 	// no queue to drain and nothing to recover on restart (ADR-0017).
 	watcher := content.NewWatcher(st, reconciler, slog.Default())
 	// The mirror exchanges reading positions with a peer that speaks
-	// KOReader's protocol (ADR-0047). It is off unless configured, and
-	// when it is on it is scoped to the single account it names.
-	mirrorRunner := &mirror.Runner{Store: st, Cfg: cfg.Mirror, Log: slog.Default()}
+	// KOReader's protocol (ADR-0053). Each account manages its own peer;
+	// the operator-configured mirror remains until its owner takes over.
+	mirrorRows, err := st.ListUserMirrors(context.Background())
+	if err != nil {
+		return fmt.Errorf("read mirror settings: %w", err)
+	}
+	mirrorVault := &mirror.Vault{Path: mirror.KeyPath(cfg), RequireExisting: len(mirrorRows) != 0}
+	mirrorRunner := mirror.NewManager(st, cfg, mirrorVault)
 	// The UI delegates downloads, covers and uploads back to the API
 	// server, so the two surfaces share one implementation of the rules
 	// about what a stored file may claim to be, and one about what may
 	// be written into a watched folder.
 	apiSrv.WebUI = &webui.Server{
 		St: st, Auth: auth.NewService(st), Cfg: cfg, ConfigPath: *cfgPath,
+		MirrorVault: mirrorVault, MirrorChanged: mirrorRunner.Notify,
 		LoginLimiter: loginLimiter,
 		Downloads:    apiSrv,
 		Covers:       apiSrv,

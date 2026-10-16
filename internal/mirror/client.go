@@ -269,6 +269,13 @@ func firstLine(raw []byte) string {
 	return s
 }
 
+// TestUserConnection uses the same restricted transport as a personal worker.
+func TestUserConnection(ctx context.Context, cfg config.MirrorConfig, transport *http.Transport) error {
+	c := NewClient(cfg)
+	c.http.Transport = transport
+	return c.Authorize(ctx)
+}
+
 // Proxies can echo request headers in errors. Redact before truncation so
 // neither the plaintext password nor its Basic header reaches logs/cursors.
 func (c *Client) safeErrorBody(raw []byte) string {

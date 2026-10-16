@@ -154,14 +154,19 @@ type Config struct {
 	// that speaks KOReader's sync protocol (ADR-0047). Disabled by
 	// default, and the only part of this server that dials out.
 	Mirror MirrorConfig `toml:"mirror"`
+	// MirrorKeyFile protects account-managed peer credentials (ADR-0053).
+	// Empty uses mirror.key beside the SQLite database, or beside the cover
+	// cache directory for PostgreSQL. Keep it with backups, outside the database.
+	MirrorKeyFile string `toml:"mirror_key_file"`
+	// MirrorAllowedOrigins permits account mirrors to reach these private
+	// HTTP(S) origins. Public addresses are allowed without an entry.
+	MirrorAllowedOrigins []string `toml:"mirror_allowed_origins"`
 }
 
 // MirrorConfig is one peer this server mirrors reading to and from.
-// There is exactly one, for exactly one account: the credential lives
-// here rather than in a table because a secret this server must
-// *present* cannot be hashed, and a single account makes configuration
-// the honest place to keep it (ADR-0047). It is never logged and never
-// appears in a response.
+// Operator settings live in TOML (ADR-0047); account settings use the same
+// shape sealed with the deployment key (ADR-0053). Credentials never appear
+// in responses or logs.
 type MirrorConfig struct {
 	Enabled bool `toml:"enabled"`
 	// Protocol is how the peer is spoken to. "kosync" is KOReader's
@@ -367,6 +372,8 @@ func (c *Config) applyEnv() {
 	setList(&c.TrustedProxies, "LISEUR_TRUSTED_PROXIES")
 	setList(&c.Content.FolderRoots, "LISEUR_FOLDER_ROOTS")
 
+	setStr(&c.MirrorKeyFile, "LISEUR_MIRROR_KEY_FILE")
+	setList(&c.MirrorAllowedOrigins, "LISEUR_MIRROR_ALLOWED_ORIGINS")
 	setBool(&c.Mirror.Enabled, "LISEUR_MIRROR_ENABLED")
 	setStr(&c.Mirror.Name, "LISEUR_MIRROR_NAME")
 	setStr(&c.Mirror.BaseURL, "LISEUR_MIRROR_BASE_URL")
@@ -475,6 +482,14 @@ func (c *Config) Validate() error {
 	}
 	if c.WebSessionTTLDays < 1 || c.WebSessionTTLDays > 3650 {
 		return fmt.Errorf("web_session_ttl_days must be between 1 and 3650")
+	}
+	c.MirrorAllowedOrigins = append([]string(nil), c.MirrorAllowedOrigins...)
+	for i, origin := range c.MirrorAllowedOrigins {
+		u, err := url.Parse(strings.TrimSpace(origin))
+		if err != nil || u.Hostname() == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+			return fmt.Errorf("mirror_allowed_origins entries must be HTTP(S) origins without credentials, paths or queries")
+		}
+		c.MirrorAllowedOrigins[i] = u.Scheme + "://" + u.Host
 	}
 	if err := c.validateMirror(); err != nil {
 		return err

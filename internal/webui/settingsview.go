@@ -16,6 +16,7 @@ import (
 const (
 	settingsProfile = "profile"
 	settingsDevices = "devices"
+	settingsMirror  = "mirror"
 	settingsAdmin   = "admin"
 
 	settingsAdminOverview    = "overview"
@@ -120,6 +121,7 @@ type settingsView struct {
 	PasswordMessage string
 	PasswordError   bool
 
+	Mirror  mirrorView
 	Devices settingsDevicesView
 	Admin   settingsAdminView
 	Flash   Flash
@@ -255,7 +257,7 @@ func (f Flash) folderUploadsOr(defaultValue bool) bool {
 func settingsSelection(r *http.Request) (section, view, userID string) {
 	section = r.URL.Query().Get("section")
 	switch section {
-	case settingsDevices:
+	case settingsDevices, settingsMirror:
 	case settingsAdmin:
 		view = r.URL.Query().Get("view")
 		switch view {
@@ -321,6 +323,13 @@ func (s *Server) renderSettings(
 	}
 
 	switch section {
+	case settingsMirror:
+		m, err := s.personalMirror(r.Context(), u)
+		if err != nil {
+			view.Flash.Error = err.Error()
+		} else {
+			view.Mirror = mirrorView{Config: m, HasKey: mirrorHasCredential(m)}
+		}
 	case settingsDevices:
 		view.Devices = s.settingsDevices(r, u)
 	case settingsAdmin:

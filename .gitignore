@@ -13,3 +13,6 @@ coverage.out
 node_modules/
 /liseur-sync
 /.github/instructions/*local*
+
+# Account mirror encryption key (keep in deployment backups, never git).
+mirror.key

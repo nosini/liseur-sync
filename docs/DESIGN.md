@@ -420,6 +420,18 @@ A reader can clear one work's rows or the whole account's
 ([ADR-0053](adr/0053-a-reader-can-clear-the-account-translations.md));
 devices that already pulled them keep their copies.
 
+### 5.8 Account-managed KOReader mirrors
+
+Each reader may configure one outbound KOReader mirror from Settings →
+Devices & integrations, using standard KOReader credentials or Calibre-Web
+HTTP Basic authentication. The account comes from the authenticated session.
+Peer credentials are encrypted with a deployment key outside the database,
+never returned, and applied without restarting the server. A personal save,
+including disabling the mirror, takes precedence over an operator-configured
+mirror for that account. Private peer origins require an explicit operator
+allowlist. [ADR-0053](adr/0053-users-manage-their-koreader-mirror.md) defines
+credential storage, worker replacement and outbound network bounds.
+
 ## 6. Reading statistics
 
 ### 6.1 Sessions are facts, not derived state

@@ -516,3 +516,33 @@ func testMirrorCursorsFollowTheWorkOut(t *testing.T, open OpenFunc) {
 		t.Fatalf("a cursor outlived its work: %+v", cursors)
 	}
 }
+
+func testUserMirrorSettings(t *testing.T, open OpenFunc) {
+	s := open(t)
+	ctx := context.Background()
+	alice, bob := MkUser(t, s, "personal-alice"), MkUser(t, s, "personal-bob")
+	if _, err := s.UserMirror(ctx, alice.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unset: %v", err)
+	}
+	for _, m := range []store.UserMirror{{UserID: alice.ID, SealedConfig: "alice-sealed"}, {UserID: bob.ID, SealedConfig: "bob-sealed"}, {UserID: alice.ID, SealedConfig: "alice-updated"}} {
+		if err := s.PutUserMirror(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		user string
+		want string
+	}{{alice.ID, "alice-updated"}, {bob.ID, "bob-sealed"}} {
+		got, err := s.UserMirror(ctx, tc.user)
+		if err != nil || got.SealedConfig != tc.want {
+			t.Fatalf("account %s: %+v %v", tc.user, got, err)
+		}
+	}
+	rows, err := s.ListUserMirrors(ctx)
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("background lookup: %+v %v", rows, err)
+	}
+	if err := s.PutUserMirror(ctx, store.UserMirror{UserID: "unknown", SealedConfig: "orphan"}); err == nil {
+		t.Fatal("orphan config accepted")
+	}
+}

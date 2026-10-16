@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sync"
 	"time"
 
@@ -30,6 +31,9 @@ type Runner struct {
 
 	// MaxPerPass bounds one pass. Zero takes the package default.
 	MaxPerPass int
+	// UserID pins account-managed jobs to an immutable identity.
+	UserID    string
+	Transport *http.Transport
 
 	mu     sync.Mutex
 	status Status
@@ -99,6 +103,12 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 	log := r.log().With("peer", r.Cfg.Name)
 	proto, err := NewProtocol(r.Cfg, log)
+	if r.Transport != nil && (r.Cfg.Protocol == "" || r.Cfg.Protocol == config.ProtocolKosync) {
+		client := NewClient(r.Cfg)
+		client.http.Transport = r.Transport
+		proto = KosyncProtocol(client, r.Cfg)
+		defer r.Transport.CloseIdleConnections()
+	}
 	if err != nil {
 		// Configuration is validated before anything starts, so this
 		// is a protocol name that got past Validate rather than an
@@ -246,7 +256,13 @@ func NewProtocol(cfg config.MirrorConfig, log *slog.Logger) (Protocol, error) {
 // calls it again on every later pass, because an administrator can
 // disable an account after a syncer for it already exists.
 func (r *Runner) account(ctx context.Context) (store.User, error) {
-	u, err := r.Store.UserByName(ctx, r.Cfg.Account)
+	var u store.User
+	var err error
+	if r.UserID != "" {
+		u, err = r.Store.UserByID(ctx, r.UserID)
+	} else {
+		u, err = r.Store.UserByName(ctx, r.Cfg.Account)
+	}
 	if err != nil {
 		return store.User{}, fmt.Errorf("mirror account %q: %w", r.Cfg.Account, err)
 	}

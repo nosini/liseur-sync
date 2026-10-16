@@ -1530,6 +1530,12 @@ func SplitWorkTranslationCursor(c string) (at time.Time, key string, ok bool) {
 // All methods take a userID; cross-user access is impossible by
 // construction.
 type Store interface {
+	// Account mirror configurations are sealed by internal/mirror before
+	// storage. ListUserMirrors is reserved for the trusted background job;
+	// requests always use their authenticated user ID with UserMirror.
+	UserMirror(ctx context.Context, userID string) (UserMirror, error)
+	PutUserMirror(ctx context.Context, m UserMirror) error
+	ListUserMirrors(ctx context.Context) ([]UserMirror, error)
 	// Lifecycle.
 	Migrate(ctx context.Context) error
 	Close() error
@@ -2300,4 +2306,11 @@ func NewID() string {
 		panic("store: crypto/rand unavailable: " + err.Error())
 	}
 	return hex.EncodeToString(b)
+}
+
+// UserMirror holds one account's encrypted outbound mirror configuration.
+// Even a disabled row overrides the operator-configured mirror for this user.
+type UserMirror struct {
+	UserID       string
+	SealedConfig string
 }

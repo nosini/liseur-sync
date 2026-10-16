@@ -15,6 +15,7 @@ import (
 
 	"github.com/chmouel/liseur-sync/internal/auth"
 	"github.com/chmouel/liseur-sync/internal/config"
+	"github.com/chmouel/liseur-sync/internal/mirror"
 	"github.com/chmouel/liseur-sync/internal/store"
 )
 
@@ -42,13 +43,15 @@ type Server struct {
 	// browser is on HTTPS.
 	Cfg config.Config
 	// ConfigPath is the startup TOML file used by the admin mirror form.
-	ConfigPath string
+	ConfigPath    string
+	MirrorVault   *mirror.Vault
+	MirrorChanged func()
 	// mirrorMu guards mirrorSaved, the mirror settings the admin form
 	// last wrote. Cfg is read by every request goroutine and is never
 	// written after startup, so a save records what it wrote here
-	// instead: the form then shows the file's contents rather than the
-	// values this process booted with. The running mirror still reads
-	// its settings only at startup, which is what the page says.
+	// instead: the form shows the saved settings and effective credential.
+	// The operator-configured mirror reads only at startup; personal
+	// mirrors are managed separately and apply changes live.
 	mirrorMu    sync.RWMutex
 	mirrorSaved *config.MirrorConfig
 	// Downloads delegates the content server's byte-handling to the
@@ -370,6 +373,7 @@ func (s *Server) Mount(mux *http.ServeMux, secure func(http.Handler) http.Handle
 	mux.Handle("POST /ui/entities/series/{entity}/unbind",
 		sec(s.requireAuth(s.handleSeriesUnbind)))
 	mux.Handle("POST /ui/settings", sec(s.requireAuth(s.handleSaveSettings)))
+	mux.Handle("POST /ui/settings/mirror", sec(s.requireAuth(s.handleSaveUserMirror)))
 	mux.Handle("POST /ui/admin/mirror", sec(s.requireAdmin(s.handleSaveMirror)))
 	mux.Handle("POST /ui/settings/password", sec(s.requireAuth(s.handleChangePassword)))
 	mux.Handle("GET /ui/books/{id}/read", sec(s.handleReaderRoute))

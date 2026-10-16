@@ -570,7 +570,42 @@ that opens the whole peer account sits in this server's configuration.
 The KOReader key cannot do anything but read and write positions. That
 trade is the only reason the less precise protocol is the default one.
 
-Administrators can configure either from `/ui/settings` →
+Each reader can set up their own KOReader mirror from `/ui/settings` →
+**Devices & integrations** → **Set up your mirror**. Enter the peer URL,
+username and password, choose **KOReader key** for standard servers or
+**HTTP Basic** for Calibre-Web, then save. An enabled save tests the connection.
+Changes apply within a few seconds without restarting. Leave the password
+blank to keep the saved credential for the same URL, username and authentication
+method. Disable the checkbox and save to stop mirroring your account.
+
+Personal settings take precedence over an operator-configured mirror for the
+same account, even when disabled. Other accounts keep their own mirrors.
+Personal setup currently supports KOReader sync; BookOrbit's native API remains
+an operator setting.
+
+The server encrypts personal credentials using `mirror_key_file` (environment:
+`LISEUR_MIRROR_KEY_FILE`). It creates a 32-byte key with mode 0600 on the first
+save. By default this is `mirror.key` beside the SQLite database, or beside
+the cover cache directory for PostgreSQL. Put an explicit path on persistent
+storage if those defaults do not suit your deployment, and back up the key
+alongside the database. The key is never regenerated when existing settings
+need it; restore the original key if it is lost.
+
+Personal mirrors can reach public addresses. For a peer on a private network,
+the operator must list its exact origin in the top-level settings, above any
+`[table]` header:
+
+```toml
+mirror_allowed_origins = ["https://calibre.example:8443"]
+# mirror_key_file = "/data/mirror.key"
+```
+
+This grants network access to that origin for all accounts' personal mirrors.
+The comma-separated `LISEUR_MIRROR_ALLOWED_ORIGINS` environment variable can
+set the same list. DNS addresses are checked when connecting; redirects and environment proxies
+are not used. HTTP origins still require `insecure_http = true`.
+
+Administrators can configure either protocol from `/ui/settings` →
 `Administration` → `Mirror`: choose the protocol, enter the peer URL,
 choose the local account, enter the peer credential, and press **Save
 and test connection**. The page signs in to the peer before writing the
@@ -581,8 +616,8 @@ deployments.
 Changing the protocol on that page clears the saved credential, because
 the two are not interchangeable.
 
-It is off unless configured, and when it is on it covers exactly one
-account.
+The operator setting is off unless configured, and covers exactly one account.
+It continues to work after an upgrade until that account saves personal settings.
 
 ```toml
 [mirror]
@@ -777,6 +812,10 @@ whatever the setting says.
 
 ## Backup
 
+Back up `mirror.key` (or your configured `mirror_key_file`) as well as the
+database if readers use personal mirrors. Without the original key their
+saved peer credentials cannot be decrypted. Keep it private, mode 0600.
+
 Back up the database. It holds users, tokens, reading state, folder rows
 and catalog metadata. For SQLite, use the SQLite backup command rather
 than copying live `.db` and `.wal` files; for Postgres, use `pg_dump` or
@@ -817,6 +856,15 @@ that did nothing from one that did.
 Migrations run at startup under a cross-process lock. If a migration
 fails, the server refuses to start rather than run against a partially
 migrated schema. Back up before upgrades.
+
+### Personal KOReader mirrors, migration 20 on SQLite / 19 on PostgreSQL
+
+The new `user_mirrors` table stores encrypted, account-owned mirror settings.
+This migration is additive: it changes no catalog access, reading state or
+existing mirror cursors. Existing TOML mirrors keep running until their owner
+saves personal settings. A personal save applies without a restart and takes
+precedence even when disabled. Once personal mirrors are used, retain the
+encryption key outside the database in every backup.
 
 ### Settings stay on the device, the deviceSettings migration
 

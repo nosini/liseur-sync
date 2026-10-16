@@ -1189,6 +1189,13 @@ CREATE TABLE work_translation_stamps (
 );
 `
 
+const userMirrors = `
+CREATE TABLE user_mirrors (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    sealed_config TEXT NOT NULL
+);
+`
+
 // migrations is append-only: entry n is applied to a database that has
 // applied n-1 of them, so an entry that has shipped is never edited
 // again — the baseline included.
@@ -1204,6 +1211,7 @@ var migrations = []string{
 	furthestPositions,
 	workTranslations,
 	workTranslationStamps,
+	userMirrors,
 }
 
 // migrationsThrough returns the migrations up to but not including the
@@ -1229,6 +1237,7 @@ func migrationsThrough(name string) ([]string, bool) {
 		"furthestPositions":        furthestPositions,
 		"workTranslations":         workTranslations,
 		"workTranslationStamps":    workTranslationStamps,
+		"userMirrors":              userMirrors,
 	}
 	want, ok := named[name]
 	if !ok {
