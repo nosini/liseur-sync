@@ -3,10 +3,10 @@ RUN apk add --no-cache ca-certificates
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-# templ CLI for codegen (build-stage only; not in the final image)
-RUN go install github.com/a-h/templ/cmd/templ@latest
 COPY . .
-RUN templ generate ./internal/webui/ \
+# templ codegen with the version pinned in go.mod (`tool` directive), so the
+# generated code matches the templ runtime it compiles against.
+RUN go tool templ generate ./internal/webui/ \
  && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/liseur-sync ./cmd/liseur-sync
 
 FROM scratch
