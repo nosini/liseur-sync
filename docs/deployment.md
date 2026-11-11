@@ -1133,6 +1133,23 @@ Migrations run at startup under a cross-process lock. If a migration
 fails, the server refuses to start rather than run against a partially
 migrated schema. Back up before upgrades.
 
+### Coming from the fork's personal mirrors
+
+An image built from the fork that let readers save their own KOReader
+mirror (its ADR-0053) recorded a `user_mirrors` migration at version 20
+on SQLite and 19 on PostgreSQL — the version upstream later gave to
+`furthestFloor`. On the first start, the server recognises that table,
+forgets the fork's version row so every upstream migration from that
+slot on runs, and renames the table to `fork_user_mirrors`. Nothing is
+deleted: the sealed settings stay there for a later port of the feature.
+A `user_mirrors` table beside any other version is refused at startup.
+
+Until that port, personal mirrors do not run. A mirror in `[mirror]` or
+`[[mirrors]]` runs as before. Remove `mirror_key_file` and
+`mirror_allowed_origins` from the config file before upgrading: a key
+the server does not know stops it from starting. Keep the `mirror.key`
+file itself, since nothing else can open the saved settings.
+
 ### Speech-to-text moved to `[speech_to_text]`
 
 The speech-to-text settings used to sit under `[audiobookshelf]`, though

@@ -137,6 +137,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if applied, err = adoptForkSchema(ctx, tx, applied); err != nil {
+		return err
+	}
 	for i := applied; i < len(migrations); i++ {
 		if _, err := tx.ExecContext(ctx, migrations[i]); err != nil {
 			return fmt.Errorf("migration %d: %w", i+1, err)

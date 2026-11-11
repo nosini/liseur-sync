@@ -63,6 +63,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 		`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&applied); err != nil {
 		return err
 	}
+	if applied, err = adoptForkSchema(ctx, tx, applied); err != nil {
+		return err
+	}
 	for i := applied; i < int64(len(migrations)); i++ {
 		if _, err := tx.ExecContext(ctx, migrations[i]); err != nil {
 			return fmt.Errorf("migration %d: %w", i+1, err)
