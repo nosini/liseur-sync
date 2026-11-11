@@ -2,6 +2,7 @@ package mirror
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -589,6 +590,79 @@ func TestAKeyStraddlingTheCutIsStillRedacted(t *testing.T) {
 				t.Fatalf("the peer's message was lost: %q", msg)
 			}
 		})
+	}
+}
+
+// TestAPasswordGoesAsHTTPBasic. Calibre-Web's KOReader sync checks the
+// account password with HTTP Basic rather than KOReader's key headers,
+// so an entry configured with a password and no key sends Basic on
+// every call, and nothing in the KOReader headers.
+func TestAPasswordGoesAsHTTPBasic(t *testing.T) {
+	const user, password = "reader", "plain-peer-password"
+	var mu sync.Mutex
+	var calls []string
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, p, ok := r.BasicAuth()
+		if !ok || u != user || p != password {
+			t.Errorf("%s %s: no Basic credential", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("x-auth-user") != "" || r.Header.Get("x-auth-key") != "" {
+			t.Errorf("%s %s: KOReader headers sent alongside Basic", r.Method, r.URL.Path)
+		}
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/syncs/") {
+			writeJSON(w, 200, Position{Document: "abc", Progress: "0.5", Percentage: 0.5})
+			return
+		}
+		writeJSON(w, 200, map[string]string{"authorized": "OK"})
+	}))
+	t.Cleanup(peer.Close)
+	c := NewClient(config.MirrorConfig{
+		BaseURL: peer.URL, RemoteUser: user, RemotePassword: password,
+		DeviceID: "liseur-sync", Timeout: config.Duration(5 * time.Second),
+	})
+	ctx := context.Background()
+	if err := c.Authorize(ctx); err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+	if err := c.Push(ctx, Position{Document: "abc", Percentage: 0.5}); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	if _, err := c.Pull(ctx, "abc"); err != nil {
+		t.Fatalf("pull: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(calls) != 3 {
+		t.Fatalf("requests: %v", calls)
+	}
+}
+
+// TestAPeerThatEchoesABasicCredentialDoesNotGetItIntoAnError. The
+// password is a whole account's, so it is redacted both as typed and as
+// the Authorization header carries it.
+func TestAPeerThatEchoesABasicCredentialDoesNotGetItIntoAnError(t *testing.T) {
+	const password = "private-basic-password"
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("rejected " + r.Header.Get("Authorization") + " for " + password))
+	}))
+	t.Cleanup(peer.Close)
+	err := NewClient(config.MirrorConfig{
+		BaseURL: peer.URL, RemoteUser: "reader", RemotePassword: password,
+		DeviceID: "liseur-sync", Timeout: config.Duration(5 * time.Second),
+	}).Authorize(context.Background())
+	if err == nil {
+		t.Fatal("a failing peer was not a failure")
+	}
+	encoded := base64.StdEncoding.EncodeToString([]byte("reader:" + password))
+	if msg := err.Error(); strings.Contains(msg, password) || strings.Contains(msg, encoded) {
+		t.Fatalf("the credential reached an error string: %q", msg)
+	}
+	if !strings.Contains(err.Error(), "rejected Basic [redacted]") {
+		t.Fatalf("the peer's message was lost: %q", err.Error())
 	}
 }
 

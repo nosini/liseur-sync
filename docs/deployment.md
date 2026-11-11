@@ -674,6 +674,22 @@ LISEUR_MIRROR_REMOTE_KEY=<md5 of the peer's KOReader sync password>
 It is the same value KOReader sends as `x-auth-key`, which is the MD5
 of the password, not the password.
 
+Calibre-Web's KOReader sync does not take that key: it signs in with the
+account password over HTTP Basic. For such a peer, give the KOReader
+entry a password instead of a key, and every request carries it as
+HTTP Basic:
+
+```
+LISEUR_MIRROR_REMOTE_PASSWORD=<the Calibre-Web account password>
+```
+
+In the admin page this is the "HTTP Basic (Calibre-Web)" choice under
+Authentication. An entry has a key or a password, never both: with both
+set, in the file or in the environment, it is refused at startup,
+because nothing says which one the peer expects. Like BookOrbit's, this
+password opens the whole peer account, and the admin page writes it to
+the config file when it saves one.
+
 For `protocol = "bookorbit"` the URL is the API root rather than the
 KOReader path, and the credential is a password rather than a key:
 
@@ -752,7 +768,9 @@ LISEUR_MIRRORS_KOBO_REMOTE_KEY=<md5 of the peer's KOReader sync password>
 LISEUR_MIRRORS_KOBO_REMOTE_PASSWORD=<the peer account password>
 ```
 
-Only the protocol's own variable is read. A variable that is set but
+Only the protocol's own variables are read: BookOrbit reads the password,
+and KOReader sync reads the key, or the password for HTTP Basic
+(Calibre-Web) — one of the two, never both. A variable that is set but
 empty refuses that entry at startup rather than falling back to a
 credential in the file.
 

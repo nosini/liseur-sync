@@ -334,6 +334,10 @@ device_id = "liseur-sync"
 	}{
 		{"kosync needs a key", `protocol = "kosync"`, false},
 		{"kosync with a key", "protocol = \"kosync\"\nremote_key = \"abc\"", true},
+		{"kosync with a password is HTTP Basic",
+			"protocol = \"kosync\"\nremote_password = \"hunter2\"", true},
+		{"kosync with both cannot say which one the peer wants",
+			"protocol = \"kosync\"\nremote_key = \"abc\"\nremote_password = \"hunter2\"", false},
 		{"a key is not a bookorbit password",
 			"protocol = \"bookorbit\"\nremote_key = \"abc\"", false},
 		{"bookorbit with a password",

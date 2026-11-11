@@ -178,6 +178,9 @@ type mirrorEditView struct {
 	Original  string
 	Legacy    bool
 	BookOrbit bool
+	// BasicAuth is a KOReader entry that signs in with HTTP Basic
+	// (Calibre-Web) rather than the KOReader key.
+	BasicAuth bool
 	HasKey    bool
 	// CredentialFromEnv names the environment variable the credential
 	// comes from, empty when it comes from the file.

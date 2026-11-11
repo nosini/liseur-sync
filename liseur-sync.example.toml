@@ -124,6 +124,9 @@ vocabulary_review_max_batch = 500  # items in one review push
 # remote_key is a secret this server presents rather than one it
 # verifies, so it cannot be hashed. Keep it in the deployment's
 # environment as LISEUR_MIRROR_REMOTE_KEY rather than in this file.
+# A peer that signs KOReader sync in with HTTP Basic (Calibre-Web) takes
+# the account password instead, as remote_password or
+# LISEUR_MIRROR_REMOTE_PASSWORD; set one of the two, never both.
 [mirror]
 enabled = false
 # name labels the peer. It keys the mirror's bookkeeping and prefixes
@@ -147,8 +150,9 @@ timeout = "20s"
 #
 # A list entry's credential comes from the environment:
 # LISEUR_MIRRORS_<NAME>_REMOTE_KEY for KOReader sync, or
-# LISEUR_MIRRORS_<NAME>_REMOTE_PASSWORD for BookOrbit's API, with the
-# name upper-cased and its dashes turned into underscores.
+# LISEUR_MIRRORS_<NAME>_REMOTE_PASSWORD for BookOrbit's API or for
+# KOReader sync over HTTP Basic (Calibre-Web), with the name upper-cased
+# and its dashes turned into underscores.
 #
 # [[mirrors]]
 # enabled = true

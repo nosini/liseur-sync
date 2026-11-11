@@ -270,6 +270,34 @@ remote_user = "reader2"
 	}
 }
 
+// TestAKosyncEntryCanReadABasicPasswordFromTheEnvironment. Calibre-Web's
+// KOReader sync takes the account password over HTTP Basic, so a kosync
+// entry reads its password variable too; set beside the key variable it
+// is refused, because nothing says which one the peer expects.
+func TestAKosyncEntryCanReadABasicPasswordFromTheEnvironment(t *testing.T) {
+	file := `
+[[mirrors]]
+enabled = true
+name = "calibre"
+base_url = "https://calibre.example.com/kosync"
+account = "alice"
+remote_user = "reader"
+`
+	t.Setenv("LISEUR_MIRRORS_CALIBRE_REMOTE_PASSWORD", "calibre-password")
+	cfg, err := Load(writeConfig(t, file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := cfg.Mirrors[0]; m.RemotePassword != "calibre-password" || m.RemoteKey != "" || !MirrorBasicAuth(m) {
+		t.Fatalf("calibre credential: %+v", m)
+	}
+
+	t.Setenv("LISEUR_MIRRORS_CALIBRE_REMOTE_KEY", "calibre-key")
+	if _, err := Load(writeConfig(t, file)); err == nil {
+		t.Fatal("a key and a password were both accepted for one kosync entry")
+	}
+}
+
 // TestAnEmptyEnvironmentCredentialIsRefused. A variable set to nothing is
 // somebody having unset it badly; carrying on with the stale credential in
 // the file would hide that.

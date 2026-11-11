@@ -17,6 +17,7 @@ package mirror
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -99,6 +100,7 @@ type Client struct {
 	baseURL  string
 	user     string
 	key      string
+	password string
 	deviceID string
 	http     *http.Client
 }
@@ -111,6 +113,7 @@ func NewClient(cfg config.MirrorConfig) *Client {
 		baseURL:  config.MirrorRoot(cfg.BaseURL),
 		user:     cfg.RemoteUser,
 		key:      cfg.RemoteKey,
+		password: cfg.RemotePassword,
 		deviceID: cfg.DeviceID,
 		http: &http.Client{
 			Timeout: cfg.Timeout.Duration(),
@@ -201,7 +204,9 @@ func (c *Client) Pull(ctx context.Context, document string) (Position, error) {
 }
 
 // do makes one request, presenting the credential in the two headers
-// KOReader uses. It returns the body, bounded.
+// KOReader uses — or, for a peer configured with a password instead of
+// a key, as HTTP Basic, which is what Calibre-Web's KOReader sync
+// expects. It returns the body, bounded.
 func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]byte, error) {
 	var rdr io.Reader
 	if body != nil {
@@ -211,8 +216,12 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]by
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("x-auth-user", c.user)
-	req.Header.Set("x-auth-key", c.key)
+	if c.key == "" && c.password != "" {
+		req.SetBasicAuth(c.user, c.password)
+	} else {
+		req.Header.Set("x-auth-user", c.user)
+		req.Header.Set("x-auth-key", c.key)
+	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "liseur-sync")
 	if body != nil {
@@ -243,7 +252,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]by
 		// body is redacted before it is cut to a line, so a key on a
 		// boundary leaves no half of itself behind.
 		return nil, fmt.Errorf("mirror: %s %s: peer answered %s: %s",
-			method, path, resp.Status, firstLine([]byte(c.redact(string(raw)))))
+			method, path, c.redact(resp.Status), firstLine([]byte(c.redact(string(raw)))))
 	}
 	if readErr != nil {
 		return nil, fmt.Errorf("mirror: %s %s: %w", method, path, readErr)
@@ -253,12 +262,21 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) ([]by
 
 // redact removes the credential from a peer's own error text. A peer or
 // a proxy in front of one that echoes what it was sent must not be able
-// to put the key in the log or on a cursor row.
+// to put the key in the log or on a cursor row. A Basic credential is
+// removed both as sent, base64-encoded in the header, and as typed.
 func (c *Client) redact(text string) string {
-	if c.key == "" {
-		return text
+	secrets := []string{c.key}
+	if c.password != "" {
+		secrets = append(secrets,
+			base64.StdEncoding.EncodeToString([]byte(c.user+":"+c.password)),
+			c.password)
 	}
-	return strings.ReplaceAll(text, c.key, "[redacted]")
+	for _, secret := range secrets {
+		if secret != "" {
+			text = strings.ReplaceAll(text, secret, "[redacted]")
+		}
+	}
+	return text
 }
 
 // firstLine keeps a peer's error out of the log in bulk. Something is

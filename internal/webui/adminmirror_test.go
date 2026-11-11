@@ -1265,3 +1265,95 @@ base_url = "http://[::1"
 		t.Fatalf("%d of the 2 unreadable addresses render as empty:\n%s", got, page)
 	}
 }
+
+// TestSwitchingAKOReaderMirrorToHTTPBasic. Calibre-Web's KOReader sync
+// signs in with the peer password over HTTP Basic, so choosing it keeps
+// the password as typed, drops the KOReader key, tests the connection
+// with Basic, and the page that comes back says which one is in use
+// without carrying the password.
+func TestSwitchingAKOReaderMirrorToHTTPBasic(t *testing.T) {
+	const password = "calibre-web-password"
+	var tested bool
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, got, ok := r.BasicAuth()
+		if !ok || user != "reader" || got != password || r.Header.Get("x-auth-key") != "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		tested = true
+		_, _ = w.Write([]byte(`{"authorized":"OK"}`))
+	}))
+	t.Cleanup(peer.Close)
+
+	ts, cookie, path, csrf := mirrorAdminWithFile(t, singleEntryFile)
+	form := mirrorForm(csrf)
+	form.Set("original", "peer")
+	form.Set("legacy", "1")
+	form.Set("enabled", "on")
+	form.Set("protocol", config.ProtocolKosync)
+	form.Set("auth", "basic")
+	form.Set("base_url", peer.URL)
+	form.Set("account", "alice")
+	form.Set("remote_user", "reader")
+	form.Set("remote_password", password)
+	form.Set("device_id", "liseur-sync")
+	_, body := postForm(t, ts, cookie, "/ui/admin/mirror", form)
+	if !tested || !strings.Contains(body, "connection tested") {
+		t.Fatalf("the peer was not tested with HTTP Basic:\n%s", body)
+	}
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Mirror.RemotePassword != password || loaded.Mirror.RemoteKey != "" {
+		t.Fatalf("saved credential: key %q, password %q", loaded.Mirror.RemoteKey, loaded.Mirror.RemotePassword)
+	}
+
+	_, edit := page(t, ts, cookie, "/ui/settings?section=admin&view=mirror&mirror=peer")
+	if !strings.Contains(edit, `<option value="basic" selected>`) {
+		t.Fatalf("the form does not show HTTP Basic as chosen:\n%s", edit)
+	}
+	if strings.Contains(edit, password) {
+		t.Fatal("the page carried the peer password")
+	}
+}
+
+// TestAFormWithoutAnAuthChoiceKeepsHTTPBasic. A save that does not say
+// which authentication it wants keeps the one the entry has, and with it
+// the saved password; switching without a new password drops it.
+func TestAFormWithoutAnAuthChoiceKeepsHTTPBasic(t *testing.T) {
+	file := strings.Replace(singleEntryFile,
+		`remote_key = "0123456789abcdef0123456789abcdef"`, `remote_password = "calibre-web-password"`, 1)
+	file = strings.Replace(file, "enabled = true\n", "enabled = false\n", 1)
+	ts, cookie, path, csrf := mirrorAdminWithFile(t, file)
+	form := mirrorForm(csrf)
+	form.Set("original", "peer")
+	form.Set("legacy", "1")
+	form.Set("protocol", config.ProtocolKosync)
+	form.Set("base_url", "https://orbit.example.com/sync")
+	form.Set("account", "alice")
+	form.Set("remote_user", "reader")
+	form.Set("device_id", "liseur-sync")
+	if _, body := postForm(t, ts, cookie, "/ui/admin/mirror", form); !strings.Contains(body, "Mirror saved") {
+		t.Fatalf("the save was not reported:\n%s", body)
+	}
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.MirrorBasicAuth(loaded.Mirror) || loaded.Mirror.RemotePassword != "calibre-web-password" {
+		t.Fatalf("the Basic credential was not kept: %+v", loaded.Mirror)
+	}
+
+	form.Set("auth", "key")
+	if _, body := postForm(t, ts, cookie, "/ui/admin/mirror", form); !strings.Contains(body, "Mirror saved") {
+		t.Fatalf("the save was not reported:\n%s", body)
+	}
+	loaded, err = config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Mirror.RemotePassword != "" || loaded.Mirror.RemoteKey != "" {
+		t.Fatalf("switching to the KOReader key kept the password: %+v", loaded.Mirror)
+	}
+}

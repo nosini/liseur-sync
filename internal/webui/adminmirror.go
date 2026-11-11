@@ -76,12 +76,13 @@ func mirrorRootKey(raw string) string {
 // mirrorHasCredential reports whether a credential for the configured
 // protocol is already on disk, so the form can offer to keep it. The
 // two protocols store different things, and a KOReader key left over
-// from before a switch is not a BookOrbit password.
+// from before a switch is not a BookOrbit password. A KOReader entry
+// holds either its key or, for HTTP Basic, the peer password.
 func mirrorHasCredential(m config.MirrorConfig) bool {
 	if m.Protocol == config.ProtocolBookOrbit {
 		return m.RemotePassword != ""
 	}
-	return m.RemoteKey != ""
+	return m.RemoteKey != "" || m.RemotePassword != ""
 }
 
 func mirrorPasswordPlaceholder(hasKey bool) string {
@@ -92,10 +93,18 @@ func mirrorPasswordPlaceholder(hasKey bool) string {
 }
 
 // mirrorCredentialEnvName is the one environment variable the entry's
-// protocol reads its credential from.
+// protocol reads its credential from. A KOReader entry reads its key
+// variable, or its password variable for HTTP Basic: whichever is set,
+// else whichever the file's credential says the entry uses.
 func mirrorCredentialEnvName(m config.MirrorConfig, legacy bool) string {
 	keyVar, passwordVar := config.MirrorCredentialEnv(m.Name, legacy)
 	if m.Protocol == config.ProtocolBookOrbit {
+		return passwordVar
+	}
+	if _, ok := os.LookupEnv(keyVar); ok {
+		return keyVar
+	}
+	if _, ok := os.LookupEnv(passwordVar); ok || config.MirrorBasicAuth(m) {
 		return passwordVar
 	}
 	return keyVar
@@ -205,6 +214,7 @@ func mirrorEditViewFor(m config.MirrorConfig, legacy bool, original string) *mir
 		Original:          original,
 		Legacy:            legacy,
 		BookOrbit:         m.Protocol == config.ProtocolBookOrbit,
+		BasicAuth:         mirrorFormBasicAuth(m, legacy),
 		HasKey:            mirrorHasCredential(m),
 		CredentialFromEnv: mirrorCredentialEnvName(m, legacy),
 		Remove:            original != "",
@@ -214,6 +224,17 @@ func mirrorEditViewFor(m config.MirrorConfig, legacy bool, original string) *mir
 	}
 	v.Config.RemoteKey, v.Config.RemotePassword = "", ""
 	return v
+}
+
+// mirrorFormBasicAuth is the authentication a KOReader entry's form
+// starts on: HTTP Basic when the file holds a password, or when the
+// environment supplies one.
+func mirrorFormBasicAuth(m config.MirrorConfig, legacy bool) bool {
+	if m.Protocol == config.ProtocolBookOrbit {
+		return false
+	}
+	_, passwordVar := config.MirrorCredentialEnv(m.Name, legacy)
+	return config.MirrorBasicAuth(m) || mirrorCredentialEnvName(m, legacy) == passwordVar
 }
 
 // mirrorFromForm is the entry the form describes. A field the form does
@@ -248,14 +269,26 @@ func mirrorFromForm(r *http.Request, previous config.MirrorConfig, has bool) con
 	if m.Protocol != previous.Protocol {
 		m.RemoteKey, m.RemotePassword = "", ""
 	}
+	// KOReader sync authenticates with the KOReader key, or with HTTP
+	// Basic for Calibre-Web. A form that does not say keeps the entry's
+	// current choice; switching drops the credential for the same reason
+	// a protocol switch does.
+	basic := config.MirrorBasicAuth(previous)
+	if auth := r.FormValue("auth"); auth != "" {
+		basic = auth == "basic"
+	}
+	if m.Protocol == config.ProtocolKosync && basic != config.MirrorBasicAuth(m) && mirrorHasCredential(m) {
+		m.RemoteKey, m.RemotePassword = "", ""
+	}
 	// What the password field means depends on the protocol. On the
 	// KOReader path it is turned into the KOReader key here and the
 	// password itself is never stored, because that is what KOReader's
-	// clients send. On the BookOrbit path it is the account password and
-	// has to be kept as typed: BookOrbit's own API signs in with it, and
-	// there is no scoped alternative it would accept.
+	// clients send. On the BookOrbit path, and for HTTP Basic, it is the
+	// account password and has to be kept as typed: BookOrbit's own API
+	// and Calibre-Web both sign in with it, and there is no scoped
+	// alternative either would accept.
 	if password := r.FormValue("remote_password"); password != "" {
-		if m.Protocol == config.ProtocolBookOrbit {
+		if m.Protocol == config.ProtocolBookOrbit || basic {
 			m.RemoteKey, m.RemotePassword = "", password
 		} else {
 			sum := md5.Sum([]byte(password))

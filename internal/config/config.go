@@ -281,6 +281,10 @@ type MirrorConfig struct {
 	// the peer account's real password, because BookOrbit offers a
 	// native client nothing narrower. It opens that whole account, so
 	// it is the reason kosync remains the default (ADR-0048).
+	//
+	// A kosync entry may carry it instead of RemoteKey, for a peer that
+	// authenticates KOReader sync with HTTP Basic (Calibre-Web). An
+	// entry never carries both: see MirrorBasicAuth.
 	RemotePassword string `toml:"remote_password"`
 	// DeviceID is the device name this server writes under on the peer.
 	// It is also how it recognises its own echo coming back, so it must
@@ -467,6 +471,14 @@ func normalizedMirrorProtocol(protocol string) string {
 	return protocol
 }
 
+// MirrorBasicAuth reports whether a kosync entry authenticates with
+// HTTP Basic, which is what Calibre-Web's KOReader sync expects: it is
+// configured with the peer password rather than the KOReader key.
+func MirrorBasicAuth(m MirrorConfig) bool {
+	return normalizedMirrorProtocol(m.Protocol) == ProtocolKosync &&
+		m.RemoteKey == "" && m.RemotePassword != ""
+}
+
 // MirrorCredentialEnv names the environment variables a mirror's
 // credential may come from. A list entry's name identifies its own pair,
 // so removing one entry can never hand its credential to another — which
@@ -487,6 +499,10 @@ func MirrorCredentialEnv(name string, legacy bool) (keyVar, passwordVar string) 
 // as the other. A variable set to the empty string means the entry has
 // no credential, so the entry is refused rather than silently started
 // with the stale one the file holds.
+//
+// A kosync entry reads its key variable, or its password variable for
+// HTTP Basic. With both set it keeps both, and validation refuses the
+// entry rather than guessing which authentication the peer wants.
 func ApplyMirrorCredentialEnv(m *MirrorConfig, keyVar, passwordVar string) bool {
 	if m.Protocol == ProtocolBookOrbit {
 		if v, ok := os.LookupEnv(passwordVar); ok {
@@ -495,11 +511,19 @@ func ApplyMirrorCredentialEnv(m *MirrorConfig, keyVar, passwordVar string) bool 
 		}
 		return false
 	}
-	if v, ok := os.LookupEnv(keyVar); ok {
-		m.RemoteKey, m.RemotePassword = v, ""
-		return true
+	key, hasKey := os.LookupEnv(keyVar)
+	password, hasPassword := os.LookupEnv(passwordVar)
+	switch {
+	case hasKey && hasPassword:
+		m.RemoteKey, m.RemotePassword = key, password
+	case hasKey:
+		m.RemoteKey, m.RemotePassword = key, ""
+	case hasPassword:
+		m.RemoteKey, m.RemotePassword = "", password
+	default:
+		return false
 	}
-	return false
+	return true
 }
 
 // legacyMirrorEnvKeys are the LISEUR_MIRROR_* variables that set the
@@ -914,7 +938,14 @@ func (c *Config) validateMirrorEntry(m *MirrorConfig, path string, legacy bool) 
 	}
 	switch m.Protocol {
 	case ProtocolKosync:
-		required = append(required, setting{path + ".remote_key", m.RemoteKey})
+		// Either the KOReader key or, for HTTP Basic, the peer password;
+		// never both, because nothing says which one the peer expects.
+		if m.RemoteKey != "" && m.RemotePassword != "" {
+			return fmt.Errorf("%s: set remote_key or remote_password, not both", path)
+		}
+		if m.RemotePassword == "" {
+			required = append(required, setting{path + ".remote_key", m.RemoteKey})
+		}
 	case ProtocolBookOrbit:
 		required = append(required, setting{path + ".remote_password", m.RemotePassword})
 	default:
