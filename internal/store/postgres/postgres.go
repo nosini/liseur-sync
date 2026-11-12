@@ -76,6 +76,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := applyForkMigrations(ctx, tx); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 

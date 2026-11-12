@@ -260,6 +260,20 @@ templ adminUserBody(prefix string, csrf string, v adminUserView, flash Flash) {
 			</form>
 		</details>
 
+		<h3 class="card-section">Personal mirror</h3>
+		if !v.Mirror.Saved {
+			<p class="muted">None.</p>
+		} else {
+			<p>
+				To <code>{ orDash(v.Mirror.Host) }</code>
+				if v.Mirror.Enabled {
+					· on
+				} else {
+					· off
+				}
+			</p>
+			<p class="muted">The account manages this mirror itself. Its remote user and credential are not shown to administrators.</p>
+		}
 		<h3 class="card-section">KOReader (kosync)</h3>
 		if len(v.Kosync) == 0 {
 			<p class="muted">None.</p>

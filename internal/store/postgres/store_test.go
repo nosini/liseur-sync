@@ -52,7 +52,7 @@ func reset(t *testing.T, s *Store) {
 		"works", "seq_counters", "compaction_state", "stats_revisions", "kosync_devices",
 		"koplugin_devices", "pairing_codes", "invites", "auth_sessions",
 		"token_scopes", "tokens", "device_settings", "user_settings",
-		"user_mirrors", "fork_user_mirrors", "users", "schema_migrations",
+		"user_mirrors", "fork_user_mirrors", "users", "schema_migrations", "fork_migrations",
 	}
 	for _, tbl := range tables {
 		if _, err := s.db.ExecContext(context.Background(),

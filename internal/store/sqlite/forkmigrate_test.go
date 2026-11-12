@@ -131,3 +131,111 @@ func TestAForkTableAtAnUnknownVersionIsRefused(t *testing.T) {
 		t.Fatalf("the refused migration changed the version: %d %v", maxVersion, err)
 	}
 }
+
+// TestForkLedgerAdoptsTheForkTable follows the fork's sealed settings
+// through every state a deployment can be in: the fork itself, a build
+// that only renamed the table (no ledger yet), and a fresh database. Each
+// ends with the same table, the target column and one ledger row, and a
+// restart changes nothing.
+func TestForkLedgerAdoptsTheForkTable(t *testing.T) {
+	ctx := t.Context()
+	cases := map[string]func(t *testing.T) (*Store, bool){
+		"fork": func(t *testing.T) (*Store, bool) {
+			s := forkDatabase(t, forkUserMirrorsVersion)
+			u := storetest.MkUser(t, s, "fork-reader")
+			if _, err := s.db.ExecContext(ctx,
+				`INSERT INTO user_mirrors(user_id, sealed_config) VALUES (?, 'sealed')`, u.ID); err != nil {
+				t.Fatal(err)
+			}
+			return s, true
+		},
+		"renamed": func(t *testing.T) (*Store, bool) {
+			s := forkDatabase(t, forkUserMirrorsVersion)
+			u := storetest.MkUser(t, s, "fork-reader")
+			if _, err := s.db.ExecContext(ctx,
+				`INSERT INTO user_mirrors(user_id, sealed_config) VALUES (?, 'sealed')`, u.ID); err != nil {
+				t.Fatal(err)
+			}
+			// What the build before the ledger did, and nothing more.
+			if _, err := s.db.ExecContext(ctx,
+				`DELETE FROM schema_migrations WHERE version = ?`, forkUserMirrorsVersion); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.db.ExecContext(ctx,
+				`ALTER TABLE user_mirrors RENAME TO fork_user_mirrors`); err != nil {
+				t.Fatal(err)
+			}
+			return s, true
+		},
+		"fresh": func(t *testing.T) (*Store, bool) {
+			s, err := Open(filepath.Join(t.TempDir(), "fresh.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { s.Close() })
+			return s, false
+		},
+	}
+	for name, build := range cases {
+		t.Run(name, func(t *testing.T) {
+			s, hasRow := build(t)
+			for range 2 {
+				if err := s.Migrate(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var ledger, maxVersion int
+			if err := s.db.QueryRowContext(ctx,
+				`SELECT COUNT(*), COALESCE(MAX(version), 0) FROM fork_migrations`).Scan(&ledger, &maxVersion); err != nil {
+				t.Fatal(err)
+			}
+			if ledger != len(forkMigrations) || maxVersion != len(forkMigrations) {
+				t.Fatalf("fork_migrations: %d rows up to %d, want %d", ledger, maxVersion, len(forkMigrations))
+			}
+			var count int
+			if err := s.db.QueryRowContext(ctx,
+				`SELECT COUNT(*), COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&count, &maxVersion); err != nil {
+				t.Fatal(err)
+			}
+			if count != len(migrations) || maxVersion != len(migrations) {
+				t.Fatalf("schema_migrations: %d rows up to %d, want %d", count, maxVersion, len(migrations))
+			}
+			rows, err := s.ListPersonalMirrors(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if hasRow && (len(rows) != 1 || rows[0].SealedConfig != "sealed" || rows[0].TargetHash != "") {
+				t.Fatalf("the fork's row: %+v", rows)
+			}
+			if !hasRow && len(rows) != 0 {
+				t.Fatalf("a fresh database has rows: %+v", rows)
+			}
+		})
+	}
+}
+
+// TestALaterUpstreamUserMirrorsTableIsNotTheForks. Once the ledger exists,
+// a user_mirrors table is upstream's, whatever version it arrives at, and
+// the fork's repair must neither rename it nor refuse to start.
+func TestALaterUpstreamUserMirrorsTableIsNotTheForks(t *testing.T) {
+	ctx := t.Context()
+	s, err := Open(filepath.Join(t.TempDir(), "later.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `CREATE TABLE user_mirrors (id TEXT PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatalf("an upstream user_mirrors table stopped the start: %v", err)
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'user_mirrors'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("upstream's table was moved: %d %v", count, err)
+	}
+}

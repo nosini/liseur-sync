@@ -36,6 +36,7 @@ const (
 	settingsDevicesEReaders = "e-readers"
 	settingsDevicesApps     = "apps"
 	settingsDevicesOPDS     = "opds"
+	settingsDevicesMirror   = "mirror"
 )
 
 const (
@@ -102,6 +103,7 @@ type settingsDevicesView struct {
 	Kosync   []store.KosyncDevice
 	Koplugin []store.KopluginDevice
 	Base     string
+	Mirror   personalMirrorView
 }
 
 type settingsAdminView struct {
@@ -228,7 +230,7 @@ func settingsDevicesHref(prefix, view string) string {
 // devicesView turns whatever the query held into a view that exists.
 func devicesView(view string) string {
 	switch view {
-	case settingsDevicesApps, settingsDevicesOPDS:
+	case settingsDevicesApps, settingsDevicesOPDS, settingsDevicesMirror:
 		return view
 	}
 	return settingsDevicesEReaders
@@ -464,6 +466,9 @@ func (s *Server) renderSettings(
 		currentView = devicesView(adminView)
 		view.Devices = s.settingsDevices(r, u)
 		view.Devices.View = currentView
+		if currentView == settingsDevicesMirror {
+			view.Devices.Mirror = s.personalMirrorView(r.Context(), u)
+		}
 	case settingsAdmin:
 		if adminView == "" {
 			adminView = settingsAdminOverview
@@ -608,6 +613,8 @@ func (s *Server) settingsAdmin(
 				})
 			}
 		}
+		view.Mirror.Host, view.Mirror.Enabled, view.Mirror.Saved =
+			s.personalMirrorHost(r.Context(), target.ID)
 		v.User = view
 		v.HasUser = true
 	case settingsAdminMirror:

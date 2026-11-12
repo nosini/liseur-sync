@@ -3,7 +3,8 @@
 # LISEUR_DATABASE_URL, LISEUR_CACHE_DIR, LISEUR_FOLDER_ROOTS,
 # LISEUR_INSECURE_HTTP,
 # LISEUR_CORS_ORIGINS, LISEUR_TRUSTED_PROXIES,
-# LISEUR_READER_ORIGIN.
+# LISEUR_READER_ORIGIN, LISEUR_MIRROR_KEY_FILE,
+# LISEUR_MIRROR_ALLOWED_ORIGINS.
 
 # Top-level settings must stay above the first [table] header. TOML binds
 # a bare key to the table above it, so moving any of these below one
@@ -37,6 +38,20 @@ pairing_code_ttl_min = 15
 # use is never signed out, and one left alone lapses after this many
 # days. Lowering it does not shorten sessions already issued.
 web_session_ttl_days = 180
+
+# Readers can set up their own KOReader sync mirror under Settings >
+# Devices & integrations > Mirror (ADR-F001). Its credential is stored
+# encrypted with this key file. Empty uses mirror.key beside the SQLite
+# database, or beside the cache directory for PostgreSQL. It is created on
+# the first save with mode 0600. Back it up with the database: without it
+# no saved personal mirror can be opened.
+mirror_key_file = ""
+
+# A reader's mirror may only reach public addresses, so an account cannot
+# point this server at the network it runs on. Allow a private peer by
+# its exact origin (scheme, host and port); plain HTTP still needs
+# insecure_http.
+# mirror_allowed_origins = ["https://calibre.lan:8443"]
 
 # More mirrors beside the single [mirror] table below (ADR-0061). Each
 # entry is a [[mirrors]] table with its own name, local account and

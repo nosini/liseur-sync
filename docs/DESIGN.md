@@ -673,6 +673,17 @@ It is configured in the `[audiobookshelf]` section or, for the settings
 that are not operational detail, from the administration page; a saved
 change needs a restart ([ADR-0062](adr/0062-configuring-audiobookshelf-from-the-admin-page.md)).
 
+### 7.5 Personal mirrors
+
+A reader may also save one outbound KOReader-sync mirror of their own
+from the Devices settings, beside whatever the operator configured
+([ADR-F001](adr/fork-0001-readers-manage-their-own-mirror.md)). The settings
+are sealed with a key kept outside the database and never rendered. The
+peer must be on a public address unless the operator allows its origin.
+A save applies without a restart. No two accounts may mirror into one
+remote account, which a unique keyed digest of the target enforces
+across personal and configured mirrors alike.
+
 ## 8. Security and auth
 
 Designed as the direct negation of the KoInsight findings.

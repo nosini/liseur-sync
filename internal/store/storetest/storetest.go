@@ -62,6 +62,7 @@ func Run(t *testing.T, open OpenFunc) {
 	t.Run("MirrorCursorsFollowTheWorkOut", func(t *testing.T) {
 		testMirrorCursorsFollowTheWorkOut(t, open)
 	})
+	t.Run("PersonalMirrors", func(t *testing.T) { testPersonalMirrors(t, open) })
 	t.Run("AudiobookLinks", func(t *testing.T) { testAudiobookLinks(t, open) })
 	t.Run("AudiobookLinksFollowWorks", func(t *testing.T) { testAudiobookLinksFollowWorks(t, open) })
 	t.Run("AudiobookLinkDoesNotKeepAWork", func(t *testing.T) { testAudiobookLinkDoesNotKeepAWork(t, open) })

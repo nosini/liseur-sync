@@ -72,6 +72,9 @@ type adminUserView struct {
 	// for the addresses an operator has to read out to whoever owns the
 	// device being paired.
 	Base string
+	// Mirror is what an administrator may know about the account's
+	// personal mirror (ADR-F001): whether there is one, and its host.
+	Mirror adminPersonalMirror
 	// Folders is every watched folder, not one page. The checkbox form
 	// replaces the complete grant set, so rendering a partial list would
 	// revoke everything on a later page when it was submitted.
@@ -855,4 +858,11 @@ func moreNote(n int) string {
 		return ""
 	}
 	return "and " + strconv.Itoa(n) + " more not shown"
+}
+
+// adminPersonalMirror is a reader's mirror as an administrator sees it.
+type adminPersonalMirror struct {
+	Saved   bool
+	Host    string
+	Enabled bool
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sync"
 	"time"
 
@@ -30,6 +31,18 @@ type Runner struct {
 
 	// MaxPerPass bounds one pass. Zero takes the package default.
 	MaxPerPass int
+
+	// UserID pins a personal mirror to the account that saved it
+	// (ADR-F001). Its sealed settings carry an account name too, but a
+	// name can be renamed and a row is not an authority on whose reading
+	// it may touch; an operator's entry, which has no ID, resolves
+	// Cfg.Account instead.
+	UserID string
+	// Transport replaces the HTTP transport the peer is reached through.
+	// A personal mirror uses UserTransport; nil is the default transport.
+	// Only kosync takes one, which is the only protocol a personal mirror
+	// may speak.
+	Transport *http.Transport
 
 	mu     sync.Mutex
 	status Status
@@ -99,6 +112,10 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 	log := r.log().With("peer", r.Cfg.Name)
 	proto, err := NewProtocol(r.Cfg, log)
+	if err == nil && r.Transport != nil {
+		proto, err = kosyncWithTransport(r.Cfg, r.Transport)
+		defer r.Transport.CloseIdleConnections()
+	}
 	if err != nil {
 		// Configuration is validated before anything starts, so this
 		// is a protocol name that got past Validate rather than an
@@ -241,12 +258,40 @@ func NewProtocol(cfg config.MirrorConfig, log *slog.Logger) (Protocol, error) {
 	}
 }
 
+// kosyncWithTransport is NewProtocol for a peer reached through a
+// transport of its own. It refuses any other protocol rather than
+// quietly reaching that peer without the transport's restrictions.
+func kosyncWithTransport(cfg config.MirrorConfig, t *http.Transport) (Protocol, error) {
+	if cfg.Protocol != "" && cfg.Protocol != config.ProtocolKosync {
+		return nil, fmt.Errorf("mirror: protocol %q cannot use a restricted transport", cfg.Protocol)
+	}
+	c := NewClient(cfg)
+	c.http.Transport = t
+	return KosyncProtocol(c, cfg), nil
+}
+
+// CheckPersonalConnection checks a personal mirror's credential through
+// the same restricted transport its worker will use.
+func CheckPersonalConnection(ctx context.Context, cfg config.MirrorConfig, t *http.Transport) error {
+	proto, err := kosyncWithTransport(cfg, t)
+	if err != nil {
+		return err
+	}
+	return proto.Authorize(ctx)
+}
+
 // account resolves the configured account and refuses one that is
 // disabled. build calls it once to construct a syncer; checkEnabled
 // calls it again on every later pass, because an administrator can
 // disable an account after a syncer for it already exists.
 func (r *Runner) account(ctx context.Context) (store.User, error) {
-	u, err := r.Store.UserByName(ctx, r.Cfg.Account)
+	var u store.User
+	var err error
+	if r.UserID != "" {
+		u, err = r.Store.UserByID(ctx, r.UserID)
+	} else {
+		u, err = r.Store.UserByName(ctx, r.Cfg.Account)
+	}
 	if err != nil {
 		return store.User{}, fmt.Errorf("mirror account %q: %w", r.Cfg.Account, err)
 	}

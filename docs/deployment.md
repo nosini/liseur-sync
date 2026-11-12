@@ -841,6 +841,50 @@ exist yet. The interval doubles from `poll_interval` up to half an hour
 and resets on the first success, and none of it can stop the server.
 Watch the log for `mirror pass failed`.
 
+### Readers' own mirrors
+
+Readers can also set up a mirror themselves, without an administrator
+and without a restart: Settings → Devices & integrations → Mirror
+([ADR-F001](adr/fork-0001-readers-manage-their-own-mirror.md)). It is always
+KOReader sync, with either the KOReader key (the form takes the password
+and keeps only its key) or the password itself for Calibre-Web's HTTP
+Basic. It covers only the reader's own account, runs beside any mirror
+configured here, and applies within a few seconds of saving.
+
+Two settings concern the operator:
+
+```toml
+mirror_key_file = ""   # default: mirror.key beside the SQLite database,
+                       # or beside the cache directory for PostgreSQL
+# mirror_allowed_origins = ["https://calibre.lan:8443"]
+```
+
+The saved settings, credential included, are encrypted with the key in
+`mirror_key_file` (`LISEUR_MIRROR_KEY_FILE`). The server creates it on
+the first save, mode `0600`, and refuses to use one that anybody else
+can read. It must survive restarts, so in a container it belongs on the
+data volume, which is where the default puts it. Once any reader has
+saved a mirror, a missing key is reported rather than recreated, and
+every saved mirror stays unreadable until the original file is back.
+
+A reader's peer must be on a public address. Private, loopback,
+link-local and other reserved addresses are refused when the address
+is looked up, every time, so a reader cannot make this server reach
+into the network it runs on. To allow a peer on your own network, list
+its exact origin (scheme, host and port) in `mirror_allowed_origins`
+(`LISEUR_MIRROR_ALLOWED_ORIGINS`, comma-separated). A plain-HTTP peer
+also needs `insecure_http`.
+
+No two accounts may mirror into the same account on the same peer,
+because their reading would merge there. A reader's save is refused when
+another reader already holds that remote account, or when a mirror
+configured here uses it. A configured mirror always wins: if a later
+configuration change gives one the remote account a reader was using,
+the reader's mirror stops and their page says why.
+
+An administrator sees, on each account's page, whether it has a mirror
+and the peer's host. The remote user and the credential are never shown.
+
 ### What to expect from it
 
 - **Books are matched by their bytes.** On the KOReader protocol that
@@ -1102,6 +1146,12 @@ collection. They are not owned by this server, and restoring the server
 database without restoring the same mounted folders leaves books
 `missing` until the paths return.
 
+Back up the mirror key file (`mirror_key_file`, by default `mirror.key`
+beside the SQLite database or the cache directory) once any reader has
+saved a mirror of their own. Without it no saved personal mirror can be
+opened. Keep that copy apart from the database backups: together they
+reveal the readers' peer credentials.
+
 The cache directory may be skipped. Every file in it is a rendered cover
 that can be produced again from a book. If you do copy it, it does not
 need to be consistent with the database; stale entries are just cache
@@ -1140,15 +1190,38 @@ mirror (its ADR-0053) recorded a `user_mirrors` migration at version 20
 on SQLite and 19 on PostgreSQL — the version upstream later gave to
 `furthestFloor`. On the first start, the server recognises that table,
 forgets the fork's version row so every upstream migration from that
-slot on runs, and renames the table to `fork_user_mirrors`. Nothing is
-deleted: the sealed settings stay there for a later port of the feature.
-A `user_mirrors` table beside any other version is refused at startup.
+slot on runs, and renames the table to `fork_user_mirrors`. A
+`user_mirrors` table beside any other version is refused at startup.
 
-Until that port, personal mirrors do not run. A mirror in `[mirror]` or
-`[[mirrors]]` runs as before. Remove `mirror_key_file` and
-`mirror_allowed_origins` from the config file before upgrading: a key
-the server does not know stops it from starting. Keep the `mirror.key`
-file itself, since nothing else can open the saved settings.
+Personal mirrors are back
+([ADR-F001](adr/fork-0001-readers-manage-their-own-mirror.md)), and the saved
+settings run again. Keep `mirror_key_file`, `mirror_allowed_origins` and
+the `mirror.key` file: the saved settings open with that key and nothing
+else. The fork's own schema changes are now recorded in a separate
+`fork_migrations` table, so they never take an upstream version number
+again; the first start creates it and adds one column to
+`fork_user_mirrors`.
+
+What changed for readers who had a mirror saved:
+
+- **It no longer replaces a configured mirror for the same account.**
+  The fork turned the operator's mirror off once its owner saved one,
+  even a disabled one. Now both run, unless they write to the same
+  remote account, in which case the configured one runs and the
+  reader's page says why theirs does not.
+- **Its bookkeeping starts over once.** Personal mirrors now run under
+  the fixed name `personal_mirror`, so the first pass treats every
+  recent book as new and positions taken from the peer appear under a
+  new `personal_mirror:` device. Nothing is lost; the pass is just
+  slower.
+- **Two readers on one remote account cannot both run.** Whichever
+  starts first keeps it, and the other's page says another account
+  already mirrors there.
+
+Rolling back to an image from before this change stops the readers'
+mirrors again and keeps their rows, but that image does not know
+`mirror_key_file` or `mirror_allowed_origins` and refuses to start while
+the config file has them: remove both first, and keep `mirror.key`.
 
 ### Speech-to-text moved to `[speech_to_text]`
 

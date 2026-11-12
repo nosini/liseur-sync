@@ -185,6 +185,18 @@ type Config struct {
 	// from appearing as a peer nobody configured.
 	mirrorDefined bool
 
+	// MirrorKeyFile is the key personal mirror settings are sealed with
+	// (ADR-F001). Empty means mirror.key beside the SQLite database, or
+	// beside the cover cache directory for PostgreSQL. It is created on
+	// the first save and must be backed up with the database: without it
+	// no saved personal mirror opens.
+	MirrorKeyFile string `toml:"mirror_key_file"`
+	// MirrorAllowedOrigins lets personal mirrors reach these private
+	// origins (scheme, host and port). A reader's peer must otherwise be
+	// on a public address, so an account cannot point this server at the
+	// network it runs on.
+	MirrorAllowedOrigins []string `toml:"mirror_allowed_origins"`
+
 	// Audiobookshelf follows audiobooks on one Audiobookshelf server
 	// (ADR-0055). Disabled by default; independent of the mirror.
 	Audiobookshelf AudiobookshelfConfig `toml:"audiobookshelf"`
@@ -410,7 +422,7 @@ func MirrorRoot(baseURL string) string {
 	return strings.TrimRight(baseURL, "/")
 }
 
-// mirrorTargetKey folds a peer address down to the account it names, so
+// MirrorTargetKey folds a peer address down to the account it names, so
 // that two spellings of one peer cannot pass as two. The route a protocol
 // is spoken at is not part of the identity: BookOrbit serves its native
 // API and its KOReader route from one installation, and a port the scheme
@@ -423,7 +435,7 @@ func MirrorRoot(baseURL string) string {
 // are keyed by its name and identified by peerIdentity, which keeps the
 // protocol and the address as typed, so relaxing this comparison never
 // makes a worker adopt another one's bookkeeping.
-func mirrorTargetKey(m MirrorConfig) string {
+func MirrorTargetKey(m MirrorConfig) string {
 	var host, port, route string
 	if u, err := url.Parse(m.BaseURL); err == nil && u.Host != "" {
 		host = strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
@@ -671,6 +683,8 @@ func (c *Config) applyEnv() {
 	setList(&c.TrustedProxies, "LISEUR_TRUSTED_PROXIES")
 	setList(&c.Content.FolderRoots, "LISEUR_FOLDER_ROOTS")
 
+	setStr(&c.MirrorKeyFile, "LISEUR_MIRROR_KEY_FILE")
+	setList(&c.MirrorAllowedOrigins, "LISEUR_MIRROR_ALLOWED_ORIGINS")
 	c.ApplyMirrorEnvironment()
 
 	c.ApplyAudiobookshelfEnvironment()
@@ -861,6 +875,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("web_session_ttl_days must be between 1 and 3650")
 	}
 	if err := c.validateMirror(); err != nil {
+		return err
+	}
+	if err := c.validateMirrorAllowedOrigins(); err != nil {
 		return err
 	}
 	if err := c.validateAudiobookshelf(); err != nil {
@@ -1065,6 +1082,9 @@ func (c *Config) validateMirrorSet() error {
 		names[key] = label
 		return nil
 	}
+	if c.mirrorDefined && strings.EqualFold(c.Mirror.Name, PersonalMirrorName) {
+		return fmt.Errorf("mirror.name %q is reserved for personal mirrors", c.Mirror.Name)
+	}
 	if c.mirrorDefined {
 		if err := addName(c.Mirror.Name, "the [mirror] entry"); err != nil {
 			return err
@@ -1081,7 +1101,7 @@ func (c *Config) validateMirrorSet() error {
 		if !m.Enabled {
 			return nil
 		}
-		key := mirrorTargetKey(m)
+		key := MirrorTargetKey(m)
 		if other, ok := targets[key]; ok {
 			return fmt.Errorf(
 				"%s and %s point at the same account on the same peer (%s as %s); "+

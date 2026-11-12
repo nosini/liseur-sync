@@ -250,6 +250,16 @@ func cmdServe(args []string) error {
 	// entry gets its own worker, because each is scoped to the one
 	// account it names and keeps its own bookkeeping.
 	mirrorRunners := mirrorRunners(st, cfg)
+	// Personal mirrors are the readers' own (ADR-F001): sealed rows the
+	// settings page writes, run by one manager that follows them live.
+	// Once any row exists the vault key must already be there, so a lost
+	// key is reported rather than replaced by one that opens nothing.
+	personalRows, err := st.ListPersonalMirrors(context.Background())
+	if err != nil {
+		return fmt.Errorf("read personal mirrors: %w", err)
+	}
+	mirrorVault := &mirror.Vault{Path: mirror.KeyPath(cfg), RequireExisting: len(personalRows) != 0}
+	personalMirrors := mirror.NewManager(st, cfg, mirrorVault)
 	absService := audiobookshelf.NewService(st, cfg.Audiobookshelf, cfg.SpeechToText)
 	absRunner := &audiobookshelf.Runner{Service: absService, Log: slog.Default()}
 	// The UI delegates downloads, covers and uploads back to the API
@@ -258,6 +268,8 @@ func cmdServe(args []string) error {
 	// be written into a watched folder.
 	apiSrv.WebUI = &webui.Server{
 		St: st, Auth: auth.NewService(st), Cfg: cfg, ConfigPath: *cfgPath,
+		MirrorVault:     mirrorVault,
+		PersonalMirrors: personalMirrors,
 		LoginLimiter:    loginLimiter,
 		Downloads:       apiSrv,
 		Covers:          apiSrv,
@@ -307,6 +319,11 @@ func cmdServe(args []string) error {
 			_ = runner.Run(bgCtx)
 		}()
 	}
+	mirrorWG.Add(1)
+	go func() {
+		defer mirrorWG.Done()
+		_ = personalMirrors.Run(bgCtx)
+	}()
 	absDone := make(chan struct{})
 	go func() {
 		defer close(absDone)

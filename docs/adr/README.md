@@ -93,6 +93,16 @@ loose ends that must come before any of it, are in
 | [0067](0067-richer-reading-status.md) | Additional explicit reading choices | Now | Accepted; server implemented; client pending | Want to read, reading, paused and did not finish join the wire enum without a migration, each on its own shelf, never offered as next up when paused or given up; clients must learn the values before a server emits them |
 | [0068](0068-vocabulary-sync.md) | Vocabulary Builder words and their reviews sync | Now | Accepted; implemented | Words are compare-and-set documents with a generation that bumps on resurrection, reviews are immutable events bound to a word generation, one per-user feed carries both, and clients derive the schedule from the events |
 
+### Fork ADRs
+
+Decisions that exist only in this fork are numbered `fork-NNNN` and cited as
+`ADR-FNNN`, so upstream's sequence stays upstream's and never collides with
+them.
+
+| ADR | Title | Phase | Status | Decision |
+| --- | --- | --- | --- | --- |
+| [F001](fork-0001-readers-manage-their-own-mirror.md) | Readers manage their own KOReader mirror | Now | Accepted; implemented | One sealed KOReader-sync mirror per account from the Devices settings, beside the operator's mirrors; a key file outside the database, public peers unless the operator allows an origin, live reload with the old worker joined first, a unique keyed target digest so no two accounts share a remote account, and a fork-only migration ledger |
+
 ## Convention
 
 - Files use a four-digit sequence: `NNNN-short-title.md`.

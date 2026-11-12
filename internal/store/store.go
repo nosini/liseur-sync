@@ -2737,6 +2737,24 @@ type Store interface {
 	MirrorCursors(ctx context.Context, userID, peer string) (map[string]MirrorCursor, error)
 	PutMirrorCursor(ctx context.Context, userID, peer string, c MirrorCursor) error
 
+	// Personal mirrors (ADR-F001): one KOReader mirror per account,
+	// sealed by internal/mirror before it is stored, so the store never
+	// sees a credential in the clear.
+	//
+	// PersonalMirror and DeletePersonalMirror take the authenticated
+	// account. PutPersonalMirror returns ErrConflict when another account
+	// already holds the same TargetHash. ListPersonalMirrors is store-wide
+	// and reserved for the mirror manager, a trusted background job like
+	// UserIDs; no request reaches it.
+	PersonalMirror(ctx context.Context, userID string) (PersonalMirror, error)
+	PutPersonalMirror(ctx context.Context, m PersonalMirror) error
+	DeletePersonalMirror(ctx context.Context, userID string) error
+	ListPersonalMirrors(ctx context.Context) ([]PersonalMirror, error)
+	// SetPersonalMirrorTarget records the target digest of a row the
+	// manager opened, and only if the row still holds the sealed settings
+	// it read: a save in between wins. ErrConflict as for Put.
+	SetPersonalMirrorTarget(ctx context.Context, userID, sealedConfig, targetHash string) error
+
 	// Audiobookshelf links (ADR-0055): which audiobook on one
 	// Audiobookshelf server is which of the reader's works. A link is
 	// unique on both sides per peer, whatever its state.
@@ -3130,4 +3148,15 @@ func NewID() string {
 		panic("store: crypto/rand unavailable: " + err.Error())
 	}
 	return hex.EncodeToString(b)
+}
+
+// PersonalMirror is one account's mirror settings, sealed.
+type PersonalMirror struct {
+	UserID       string
+	SealedConfig string
+	// TargetHash is a keyed digest of the remote account an enabled
+	// mirror writes to, unique across accounts; empty while the mirror
+	// is disabled, and for a row nobody has opened since it was written
+	// without one.
+	TargetHash string
 }

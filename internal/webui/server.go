@@ -15,6 +15,7 @@ import (
 	"github.com/chmouel/liseur-sync/internal/audiobookshelf"
 	"github.com/chmouel/liseur-sync/internal/auth"
 	"github.com/chmouel/liseur-sync/internal/config"
+	"github.com/chmouel/liseur-sync/internal/mirror"
 	"github.com/chmouel/liseur-sync/internal/store"
 )
 
@@ -48,6 +49,10 @@ type Server struct {
 	// Cfg is what this process started with and never changes, and the
 	// running workers keep reading that until a restart.
 	ConfigPath string
+	// MirrorVault seals readers' own mirror settings, and PersonalMirrors
+	// runs them (ADR-F001). Nil vault hides nothing but refuses a save.
+	MirrorVault     *mirror.Vault
+	PersonalMirrors *mirror.Manager
 	// Downloads delegates the content server's byte-handling to the
 	// API's implementation. It is an interface rather than a concrete
 	// server so that this package keeps depending on nothing but the
@@ -386,6 +391,8 @@ func (s *Server) Mount(mux *http.ServeMux, secure func(http.Handler) http.Handle
 	mux.Handle("POST /ui/admin/speech-to-text",
 		sec(s.requireAdminAction("speech_to_text.save", s.handleSaveSpeechToText)))
 	mux.Handle("POST /ui/settings/password", sec(s.requireAuth(s.handleChangePassword)))
+	mux.Handle("POST /ui/settings/mirror", sec(s.requireAuth(s.handleSavePersonalMirror)))
+	mux.Handle("POST /ui/settings/mirror/delete", sec(s.requireAuth(s.handleDeletePersonalMirror)))
 	mux.Handle("GET /ui/books/{id}/read", sec(s.handleReaderRoute))
 	mux.Handle("POST /ui/reader/token", sec(s.requireAuth(s.handleReaderToken)))
 	mux.Handle("POST /ui/admin/users", sec(s.requireAdmin(s.handleAdminCreateUser)))

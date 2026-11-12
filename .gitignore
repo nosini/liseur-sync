@@ -16,3 +16,6 @@ node_modules/
 
 # copied from docs/screenshots by the Pages workflow
 docs/site/img/app/
+
+# Personal mirror encryption key (back it up; never commit it).
+mirror.key

@@ -1,0 +1,97 @@
+package webui
+
+templ personalMirrorBody(prefix string, csrf string, v personalMirrorView) {
+	<p class="muted">
+		Keep your reading position in step with another KOReader sync
+		server, such as a KOReader sync server you run yourself or
+		Calibre-Web. Only your own reading is mirrored, and only how far
+		through each book you are: exact locations do not cross between
+		different reader systems.
+	</p>
+	if !v.Available {
+		<p class="error">This server cannot store mirror credentials. Ask the administrator to check the mirror encryption key.</p>
+	} else if v.Problem != "" {
+		<p class="error">{ v.Problem }</p>
+		@personalMirrorRemove(prefix, csrf)
+	} else {
+		if v.Saved && v.Config.Enabled {
+			<section class="card">
+				<h2>Status</h2>
+				if v.Refused != "" {
+					<p class="error">Not running: { v.Refused }.</p>
+				} else if v.Running {
+					if v.Status.LastSuccess != nil {
+						<p>Last synced { v.Status.LastSuccess.Format("2006-01-02 15:04 UTC") }.</p>
+					} else {
+						<p>Starting.</p>
+					}
+					if v.Status.LastError != "" {
+						<p class="error">Last attempt failed: { v.Status.LastError }</p>
+					}
+				} else {
+					<p class="muted">Starting within a few seconds.</p>
+				}
+			</section>
+		}
+		<section class="card">
+			<h2>Mirror settings</h2>
+			<form method="post" action={ prefix + "settings/mirror" } autocomplete="off">
+				<input type="hidden" name="csrf" value={ csrf }/>
+				<label class="check">
+					if v.Config.Enabled {
+						<input type="checkbox" name="enabled" checked/>
+					} else {
+						<input type="checkbox" name="enabled"/>
+					}
+					Enable mirroring
+				</label>
+				<label>Peer URL
+					<input name="base_url" type="url" value={ v.Config.BaseURL } placeholder="https://reader.example/sync" maxlength="4096"/>
+				</label>
+				<label>Authentication
+					<select name="auth">
+						if v.BasicAuth {
+							<option value="key">KOReader key (standard)</option>
+							<option value="basic" selected>HTTP Basic (Calibre-Web)</option>
+						} else {
+							<option value="key" selected>KOReader key (standard)</option>
+							<option value="basic">HTTP Basic (Calibre-Web)</option>
+						}
+					</select>
+				</label>
+				<label>Peer username
+					<input name="remote_user" value={ v.Config.RemoteUser } autocomplete="username" maxlength="4096"/>
+				</label>
+				<label>Peer password
+					<input name="remote_password" type="password" autocomplete="new-password" placeholder={ mirrorPasswordPlaceholder(v.HasKey) } maxlength="4096"/>
+				</label>
+				<p class="muted">
+					Leave the password blank to keep the saved one. It is kept
+					only while the URL, username and authentication stay the
+					same; change any of them and enter the password again.
+				</p>
+				<p class="muted">
+					Standard KOReader sync uses a key made from your password,
+					and the password itself is not stored. HTTP Basic needs the
+					password itself. Either way it is stored encrypted and never
+					shown here.
+				</p>
+				<button type="submit" class="primary">Save and test connection</button>
+			</form>
+		</section>
+		if v.Saved {
+			@personalMirrorRemove(prefix, csrf)
+		}
+	}
+}
+
+templ personalMirrorRemove(prefix string, csrf string) {
+	<section class="card">
+		<h2>Remove</h2>
+		<p class="muted">Stops mirroring and deletes the saved settings and credential. Your reading here is not touched.</p>
+		<form method="post" action={ prefix + "settings/mirror/delete" } class="inline">
+			<input type="hidden" name="csrf" value={ csrf }/>
+			<button type="submit" class="danger">Remove mirror</button>
+		</form>
+	</section>
+}

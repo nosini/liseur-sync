@@ -919,6 +919,7 @@ func TestSecureTransportOnAllUIRoutes(t *testing.T) {
 		"/ui/tokens/example/scopes", "/ui/browsers/revoke", "/ui/koreader/setup",
 		"/ui/kosync/example/crosspoint",
 		"/ui/settings", "/ui/settings/password", "/ui/audiobookshelf",
+		"/ui/settings/mirror", "/ui/settings/mirror/delete",
 		"/ui/admin/invites", "/ui/admin/users", "/ui/admin/users/u1/password",
 		"/ui/admin/users/u1/admin", "/ui/admin/users/u1/disabled",
 		"/ui/admin/users/u1/credentials/revoke",

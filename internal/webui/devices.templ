@@ -26,11 +26,12 @@ type Flash struct {
 	CreateSelection *createSelection
 }
 
-templ devicesBody(prefix string, u userCtx, csrf string, view string, toks []store.Token, browsers []browserSession, kosyncDevs []store.KosyncDevice, kopluginDevs []store.KopluginDevice, base string, flash Flash) {
+templ devicesBody(prefix string, u userCtx, csrf string, view string, toks []store.Token, browsers []browserSession, kosyncDevs []store.KosyncDevice, kopluginDevs []store.KopluginDevice, base string, personal personalMirrorView, flash Flash) {
 	<nav class="settings-subnav" aria-label="Devices sections">
 		@settingsAdminTab(settingsDevicesHref(prefix, settingsDevicesEReaders), "E-readers", view == settingsDevicesEReaders)
 		@settingsAdminTab(settingsDevicesHref(prefix, settingsDevicesApps), "Apps", view == settingsDevicesApps)
 		@settingsAdminTab(settingsDevicesHref(prefix, settingsDevicesOPDS), "OPDS", view == settingsDevicesOPDS)
+		@settingsAdminTab(settingsDevicesHref(prefix, settingsDevicesMirror), "Mirror", view == settingsDevicesMirror)
 	</nav>
 	if flash.Secret != "" {
 		<div class="card secret">
@@ -341,6 +342,9 @@ templ devicesBody(prefix string, u userCtx, csrf string, view string, toks []sto
 				}
 			</details>
 		}
+	}
+	if view == settingsDevicesMirror {
+		@personalMirrorBody(prefix, csrf, personal)
 	}
 	if view == settingsDevicesOPDS {
 		<section class="card">

@@ -23,7 +23,19 @@ const forkUserMirrorsVersion = 19
 //
 // Any other version alongside the table is a history this does not
 // know, and it is refused rather than guessed at.
+//
+// A database that has the fork ledger has been through this already, and
+// whatever user_mirrors table it might hold later is upstream's, not the
+// fork's: the ledger is checked first so such a table is never renamed.
 func adoptForkSchema(ctx context.Context, tx *sql.Tx, applied int64) (int64, error) {
+	var ledger bool
+	if err := tx.QueryRowContext(ctx,
+		`SELECT to_regclass('fork_migrations') IS NOT NULL`).Scan(&ledger); err != nil {
+		return 0, err
+	}
+	if ledger {
+		return applied, nil
+	}
 	var exists bool
 	if err := tx.QueryRowContext(ctx,
 		`SELECT to_regclass('user_mirrors') IS NOT NULL`).Scan(&exists); err != nil {

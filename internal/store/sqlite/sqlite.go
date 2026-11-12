@@ -150,6 +150,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := applyForkMigrations(ctx, tx); err != nil {
+		return err
+	}
 	if err := checkForeignKeys(ctx, tx); err != nil {
 		return err
 	}
