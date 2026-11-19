@@ -20,6 +20,8 @@ concurrency:
 
 jobs:
   deploy:
+    # The project site is upstream's; a fork has no Pages site to deploy to.
+    if: github.repository == 'chmouel/liseur-sync'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
