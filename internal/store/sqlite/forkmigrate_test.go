@@ -58,6 +58,41 @@ func forkDatabase(t *testing.T, extraVersion int) *Store {
 	return s
 }
 
+// seedForkOp writes one native position op as the fork's schema could:
+// AppendOps now names ops.kind and the columns beside it, which do not
+// exist until upstream's later migrations run. The seq counter moves with
+// the op, as the fork left it.
+func seedForkOp(t *testing.T, s *Store, u store.User, w store.Work, opID string, progression float64) store.Op {
+	t.Helper()
+	ctx := t.Context()
+	clientTS := time.Now().UTC()
+	receivedAt := time.Now().UTC()
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO seq_counters (user_id, next_seq) VALUES (?, 2)
+		 ON CONFLICT(user_id) DO UPDATE SET next_seq = 2`, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO ops (user_id, seq, op_id, work_id, device_id, client_ts,
+		                  progression, origin, received_at)
+		 VALUES (?, 1, ?, ?, 'phone', ?, ?, 'native', ?)`,
+		u.ID, opID, w.ID, formatTime(clientTS), progression, formatTime(receivedAt)); err != nil {
+		t.Fatal(err)
+	}
+	return store.Op{
+		UserID:      u.ID,
+		Seq:         1,
+		OpID:        opID,
+		WorkID:      w.ID,
+		DeviceID:    "phone",
+		ClientTS:    clientTS,
+		Progression: progression,
+		Origin:      store.OriginNative,
+		ReceivedAt:  receivedAt,
+		Kind:        store.OpKindPosition,
+	}
+}
+
 // TestADatabaseThatRanTheForkGetsUpstreamsMigrations. The fork recorded
 // its user_mirrors table at the version upstream gave furthestFloor, so
 // counting alone would skip furthestFloor forever. The upgrade has to
@@ -68,17 +103,11 @@ func TestADatabaseThatRanTheForkGetsUpstreamsMigrations(t *testing.T) {
 	s := forkDatabase(t, forkUserMirrorsVersion)
 	u := storetest.MkUser(t, s, "existing-reader")
 	w := storetest.MkWork(t, s, u, "w1", "abc123")
-	if _, err := s.AppendOps(ctx, u.ID, "phone", []store.Op{
-		{OpID: "peak", WorkID: w.ID, Progression: 0.7, ClientTS: time.Now(), Origin: store.OriginNative},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	// Today's Positions cannot read this schema until ops.kind exists, so
+	// the "before" side of the comparison is the row we seeded.
+	before := seedForkOp(t, s, u, w, "peak", 0.7)
 	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO user_mirrors(user_id, sealed_config) VALUES (?, 'sealed')`, u.ID); err != nil {
-		t.Fatal(err)
-	}
-	before, err := s.Positions(ctx, u.ID, w.ID, 1)
-	if err != nil {
 		t.Fatal(err)
 	}
 	for range 2 {
@@ -101,7 +130,7 @@ func TestADatabaseThatRanTheForkGetsUpstreamsMigrations(t *testing.T) {
 		t.Fatalf("furthestFloor was not applied: %v", err)
 	}
 	after, err := s.PositionSnapshot(ctx, u.ID, w.ID, 1)
-	if err != nil || !reflect.DeepEqual(before, after.Ops) {
+	if err != nil || !reflect.DeepEqual([]store.Op{before}, after.Ops) {
 		t.Fatalf("migration changed reading: before=%+v after=%+v err=%v", before, after, err)
 	}
 	var sealed string
